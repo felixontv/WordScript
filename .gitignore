@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+.venv/
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Logs
+*.log
+
+# Temp files
+tmpclaude-*
+
+# Secrets — enthält den Groq API Key
+config.json
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/settings.json
+.idea/

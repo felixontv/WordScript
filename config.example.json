@@ -1,0 +1,25 @@
+{
+    "groq_api_key": "YOUR_GROQ_API_KEY_HERE",
+    "model": "whisper-large-v3-turbo",
+    "language": "",
+    "prompt": "",
+
+    "post_process": true,
+    "correction_model": "llama-3.3-70b-versatile",
+
+    "hotkey": "ctrl_l+win",
+    "activation_mode": "tap",
+
+    "sample_rate": 24000,
+    "channels": 1,
+    "dtype": "int16",
+    "audio_device": "",
+    "max_recording_seconds": 120,
+    "silence_timeout_seconds": 30,
+
+    "auto_paste": true,
+    "show_tray_icon": true,
+    "play_sounds": true,
+    "log_level": "INFO",
+    "temp_audio_dir": ""
+}
