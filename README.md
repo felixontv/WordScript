@@ -11,11 +11,14 @@ Press a global hotkey to record from your microphone, then the transcribed text 
 
 ## Quick Start
 
-### 1. Install Dependencies
+### 1. One-time setup after cloning
 
 ```bash
 pip install -r requirements.txt
+git config core.hooksPath hooks
 ```
+
+> The second command activates the git hooks — after this, `BUILD_ID` updates automatically on every commit. No further setup needed.
 
 ### 2. Configure
 

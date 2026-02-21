@@ -1,9 +1,9 @@
 #!/bin/sh
-# Auto-generate BUILD_ID file on every commit.
-# Format: v0.0.1-alpha — Build: 21.02.26 18:46
+# Auto-generate BUILD_ID on every commit.
+# Format: v0.0.1-alpha - Build: 21.02.26 18:46
 
 VERSION=$(cat VERSION | tr -d '[:space:]')
 BUILD_DATE=$(date "+%d.%m.%y %H:%M")
 
-echo "${VERSION} — Build: ${BUILD_DATE}" > BUILD_ID
+printf '%s - Build: %s\n' "$VERSION" "$BUILD_DATE" > BUILD_ID
 git add BUILD_ID
