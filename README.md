@@ -3,6 +3,7 @@
 ![version](https://img.shields.io/badge/version-v0.0.1--alpha-orange)
 ![status](https://img.shields.io/badge/status-alpha-yellow)
 ![license](https://img.shields.io/badge/license-MIT-blue)
+![build](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Ffelixontv%2FWordScript%2Fmaster%2Fbuild_info.json&query=%24.build&label=build&color=lightgrey)
 
 System-wide speech-to-text for Windows 11 using Groq's ultra-fast Whisper API.  
 Press a global hotkey to record from your microphone, then the transcribed text is automatically pasted into whatever app is focused.
@@ -13,12 +14,11 @@ Press a global hotkey to record from your microphone, then the transcribed text 
 
 ### 1. One-time setup after cloning
 
-```bash
-pip install -r requirements.txt
-git config core.hooksPath hooks
+```powershell
+.\setup.ps1
 ```
 
-> The second command activates the git hooks — after this, `BUILD_ID` updates automatically on every commit. No further setup needed.
+> This installs dependencies, creates `config.json`, and activates git hooks so `BUILD_ID` updates automatically on every commit.
 
 ### 2. Configure
 

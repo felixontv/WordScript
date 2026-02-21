@@ -1,9 +1,13 @@
 #!/bin/sh
-# Auto-generate BUILD_ID on every commit.
-# Format: v0.0.1-alpha - Build: 21.02.26 18:46
+# Auto-generate BUILD_ID and build_info.json on every commit.
 
 VERSION=$(cat VERSION | tr -d '[:space:]')
 BUILD_DATE=$(date "+%d.%m.%y %H:%M")
 
+# Plain text build ID
 printf '%s - Build: %s\n' "$VERSION" "$BUILD_DATE" > BUILD_ID
-git add BUILD_ID
+
+# JSON for dynamic shields.io badge
+printf '{\n  "version": "%s",\n  "build": "%s"\n}\n' "$VERSION" "$BUILD_DATE" > build_info.json
+
+git add BUILD_ID build_info.json
