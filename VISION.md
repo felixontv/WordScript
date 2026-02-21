@@ -2,7 +2,7 @@
 
 ## What it is
 
-WordScript is a lightweight, always-on desktop utility for Windows that lets you interact with your computer using voice or text — fast, via a global hotkey. No context switching, no open browser tab.
+WordScript is a lightweight, always-on desktop utility (Windows, macOS, Linux) that lets you interact with your computer using voice or text — fast, via a global hotkey. No context switching, no open browser tab.
 
 **Core idea:** One shortcut. Two modes. Always ready.
 

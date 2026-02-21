@@ -1,16 +1,40 @@
-# WordScript — Speech-to-Text with Groq Whisper
+# WordScript
 
 ![version](https://img.shields.io/badge/version-v0.0.1--alpha-orange)
 ![status](https://img.shields.io/badge/status-alpha-yellow)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![build](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Ffelixontv%2FWordScript%2Fmaster%2Fbuild_info.json&query=%24.build&label=build&color=lightgrey)
 
-System-wide speech-to-text for Windows 11 using Groq's ultra-fast Whisper API.  
-Press a global hotkey to record from your microphone, then the transcribed text is automatically pasted into whatever app is focused.
+**One shortcut. Two modes. Always ready.**
+
+WordScript is a lightweight, always-on desktop utility that lets you interact with your computer using voice or text — fast, without switching apps or opening a browser tab.
+
+- **Transcription mode** — press a hotkey, speak, text gets pasted instantly into whatever is focused
+- **Assistant mode** _(planned)_ — same shortcut, different mode: ask a question and get a concise AI answer, optionally with screenshot context
+
+**Target platform:** Cross-platform Electron app (Windows, macOS, Linux).  
+**Current state:** Working Python prototype (Windows) — validates the core logic before the Electron rebuild.
 
 ---
 
-## Quick Start
+## Roadmap
+
+| # | Feature | Status |
+|---|---|---|
+| ✅ | Global hotkey transcription via Groq Whisper | Done |
+| ✅ | Auto-paste into focused app | Done |
+| ✅ | Tap / hold mode, multilingual, tray icon | Done |
+| 🔲 | Audio visualizer overlay while recording | Planned |
+| 🔲 | AI assistant mode (voice or text input) | Planned |
+| 🔲 | Screenshot context for visual Q&A | Planned |
+| 🔲 | Switchable AI backends (Groq, Claude, local) | Planned |
+| 🔲 | Electron rebuild — cross-platform | Planned |
+
+See [VISION.md](VISION.md) for the full design rationale and open questions.
+
+---
+
+## Quick Start (Python Prototype)
 
 ### 1. One-time setup after cloning
 
@@ -18,7 +42,7 @@ Press a global hotkey to record from your microphone, then the transcribed text 
 .\setup.ps1
 ```
 
-> This installs dependencies, creates `config.json`, and activates git hooks so `BUILD_ID` updates automatically on every commit.
+> Installs dependencies, creates `config.json`, and activates git hooks so `BUILD_ID` updates automatically on every commit.
 
 ### 2. Configure
 
@@ -50,24 +74,32 @@ Adjust hotkey, activation mode, and audio settings as needed.
 python speech_to_text.py
 ```
 
-The script runs in the background. A green tray icon appears; it turns red while recording.
+A tray icon appears (green = idle, red = recording). Press the hotkey to start/stop. Transcription is pasted automatically within ~1 second.
 
-**✨ Multilingual Support:** Language is set to empty (`""`) by default, enabling automatic language detection. Whisper will automatically detect and transcribe in any of the 90+ supported languages (English, German, Spanish, French, Chinese, Japanese, etc.). To force a specific language, set `"language": "en"` or `"de"` etc. in [config.json](config.json).
+**Multilingual:** Leave `language` empty for auto-detection across 90+ languages. Set `"language": "en"` or `"de"` to force a specific one.
 
 ---
 
 ## Usage
 
 1. **Start the script** — it sits silently in the background.
-2. **Press Ctrl+Left Win** (or your configured hotkey) to start recording. You'll hear a short beep.
-3. **Press the hotkey again** (tap mode) or **release it** (hold mode) to stop. Two short beeps confirm stop.
-4. The audio is sent to Groq Whisper. The transcription is auto-pasted (Ctrl+V) into the active window within ~1 second.
+2. **Press Ctrl+Left Win** (or your configured hotkey) to start recording. Short beep confirms.
+3. **Press the hotkey again** (tap mode) or **release it** (hold mode) to stop. Two beeps confirm.
+4. Audio is sent to Groq Whisper → transcription auto-pasted into the active window.
+
+---
+
+## Planned Shortcut Design
+
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl + Win` | Transcribe (current) |
+| `Ctrl + Alt + Win` | Ask AI — voice or text |
+| `Ctrl + Shift + Win` | Ask AI + screenshot context |
 
 ---
 
 ## Hotkey Options
-
-Combine any of these keys with `+`:
 
 | Key name              | Actual key         |
 | --------------------- | ------------------ |
@@ -75,21 +107,15 @@ Combine any of these keys with `+`:
 | `alt_l` / `alt_r`     | Left / Right Alt   |
 | `shift_l` / `shift_r` | Left / Right Shift |
 | `win` / `cmd`         | Windows key        |
-| `space`               | Spacebar           |
 | `f1`–`f12`            | Function keys      |
 | Any single char       | e.g. `t`, `r`      |
-
-Example: `"hotkey": "ctrl_l+shift_l+r"` → Ctrl+Shift+R
 
 ---
 
 ## Run at Startup (Optional)
 
-1. Press **Win+R**, type `shell:startup`, press Enter.
-2. Create a shortcut to: `pythonw speech_to_text.py` (use `pythonw` to hide the console window).
-3. Set the shortcut's "Start in" directory to this folder.
-
-Or use Task Scheduler for more control.
+1. Press **Win+R** → `shell:startup` → Enter
+2. Create a shortcut to `pythonw speech_to_text.py`, set "Start in" to this folder
 
 ---
 
@@ -100,23 +126,23 @@ pip install pyinstaller
 pyinstaller WordScript.spec
 ```
 
-The executable will be in the `dist/` folder as `WordScript.exe`. The `config.json` must be in the same directory as the `.exe`.
+Output: `dist/WordScript.exe`. Place `config.json` in the same directory.
 
 ---
 
 ## Troubleshooting
 
-| Problem                       | Solution                                                                                      |
-| ----------------------------- | --------------------------------------------------------------------------------------------- |
-| "No audio input device found" | Check Windows sound settings → Input. Make sure a microphone is connected and set as default. |
-| No beep sounds                | Windows beep requires a sound card. Check `play_sounds` config.                               |
-| Hotkey doesn't work           | Run as Administrator. Some apps intercept Win key combos. Try a different hotkey.             |
-| Transcription errors          | Check your Groq API key and internet connection. Check console logs.                          |
-| Tray icon missing             | Ensure `pystray` and `Pillow` are installed. Set `show_tray_icon: true`.                      |
+| Problem | Solution |
+| --- | --- |
+| "No audio input device found" | Check system sound settings → Input |
+| No beep sounds | Check `play_sounds` config, ensure sound card is active |
+| Hotkey doesn't work | Try running as Administrator. Some apps intercept Win key combos. |
+| Transcription errors | Check Groq API key and internet connection |
+| Tray icon missing | Ensure `pystray` and `Pillow` are installed |
 
 ---
 
-## Architecture
+## Architecture (Python Prototype)
 
 ```
 SpeechToTextApp          ← main orchestrator
@@ -127,3 +153,5 @@ SpeechToTextApp          ← main orchestrator
 ├── TrayIcon             ← pystray system tray (optional)
 └── SoundFeedback        ← winsound beeps (optional)
 ```
+
+
