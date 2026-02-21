@@ -1,5 +1,9 @@
 # WordScript — Speech-to-Text with Groq Whisper
 
+![version](https://img.shields.io/badge/version-v0.0.1--alpha-orange)
+![status](https://img.shields.io/badge/status-alpha-yellow)
+![license](https://img.shields.io/badge/license-MIT-blue)
+
 System-wide speech-to-text for Windows 11 using Groq's ultra-fast Whisper API.  
 Press a global hotkey to record from your microphone, then the transcribed text is automatically pasted into whatever app is focused.
 
