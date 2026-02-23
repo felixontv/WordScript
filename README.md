@@ -43,13 +43,15 @@ WordScript is a lightweight desktop tool that turns speech into text — instant
 
 ### Option A: Download the binary
 
-Grab the latest release for your platform from [Releases](https://github.com/felixontv/WordScript/releases/latest):
+Grab the latest release for your platform from the [Releases page](https://github.com/felixontv/WordScript/releases):
 
 | Platform | Download | Notes |
 |---|---|---|
-| Windows | [WordScript-windows.exe](https://github.com/felixontv/WordScript/releases/latest/download/WordScript-windows.exe) | Portable, no install needed |
-| macOS | [WordScript-macos](https://github.com/felixontv/WordScript/releases/latest/download/WordScript-macos) | Run `chmod +x WordScript-macos` first |
-| Linux | [WordScript-linux](https://github.com/felixontv/WordScript/releases/latest/download/WordScript-linux) | Run `chmod +x WordScript-linux` first |
+| Windows | [WordScript-windows.exe](https://github.com/felixontv/WordScript/releases/download/v0.1.1-alpha/WordScript-windows.exe) | Portable, no install needed |
+| macOS | [WordScript-macos](https://github.com/felixontv/WordScript/releases/download/v0.1.1-alpha/WordScript-macos) | Run `chmod +x WordScript-macos` first |
+| Linux | [WordScript-linux](https://github.com/felixontv/WordScript/releases/download/v0.1.1-alpha/WordScript-linux) | Run `chmod +x WordScript-linux` first |
+
+> **Note:** The table above links to `v0.1.1-alpha`. For newer versions, visit the [Releases page](https://github.com/felixontv/WordScript/releases) directly — GitHub's `/releases/latest` URL excludes pre-releases.
 
 1. Download the file for your OS
 2. Run it — on first launch, the settings window opens automatically
