@@ -728,20 +728,51 @@ class TrayIcon:
 # Update Checker
 # ---------------------------------------------------------------------------
 
-def _parse_version(tag: str) -> tuple:
-    """Convert a version tag like 'v1.2.3' or '1.2.3' to a comparable tuple."""
-    tag = tag.lstrip("vV").strip()
+try:
+    from packaging.version import Version as _Version
+    def _parse_version(tag: str) -> _Version:
+        """Parse a version tag using PEP 440 (handles pre-release suffixes like -alpha)."""
+        clean = tag.lstrip("vV").strip()
+        # Normalise hyphen-style pre-release: 1.0.0-alpha → 1.0.0a0
+        for alias, pep in (("alpha", "a0"), ("beta", "b0"), ("rc", "rc0")):
+            clean = clean.replace(f"-{alias}", alias)
+        try:
+            return _Version(clean)
+        except Exception:
+            return _Version("0")
+except ImportError:
+    # Fallback: plain tuple comparison (no pre-release awareness)
+    def _parse_version(tag: str) -> tuple:  # type: ignore[misc]
+        clean = tag.lstrip("vV").strip().split("-")[0]
+        try:
+            return tuple(int(x) for x in clean.split("."))
+        except ValueError:
+            return (0,)
+
+
+def _notify_update(latest_tag: str, download_url: str) -> None:
+    """Show a native OS toast notification about the update (best-effort, silent on failure)."""
     try:
-        return tuple(int(x) for x in tag.split("."))
-    except ValueError:
-        return (0,)
+        from plyer import notification
+        notification.notify(
+            title="WordScript — Update available",
+            message=(
+                f"{latest_tag} is available.\n"
+                "Open the tray icon menu to download."
+            ),
+            app_name="WordScript",
+            timeout=10,
+        )
+    except Exception:
+        pass
 
 
 def check_for_update(tray: "Optional[TrayIcon]" = None) -> None:
     """Check GitHub releases for a newer version in a daemon background thread.
 
     - Silent on network errors / timeouts — never crashes the app.
-    - If a newer release is found, updates the tray menu entry.
+    - Uses packaging.version for correct semver + pre-release comparison.
+    - Shows a native OS toast notification and updates the tray menu.
     """
     def _worker():
         try:
@@ -753,8 +784,8 @@ def check_for_update(tray: "Optional[TrayIcon]" = None) -> None:
             with urllib.request.urlopen(req, timeout=8) as resp:
                 data = json.loads(resp.read().decode())
 
-            latest_tag  = data.get("tag_name", "")          # e.g. "v1.1.0"
-            download_url = data.get("html_url", "")          # release page URL
+            latest_tag   = data.get("tag_name", "")   # e.g. "v0.1.1-alpha"
+            download_url = data.get("html_url", "")    # GitHub release page URL
 
             if not latest_tag:
                 return
@@ -762,19 +793,15 @@ def check_for_update(tray: "Optional[TrayIcon]" = None) -> None:
             current = _parse_version(APP_VERSION)
             latest  = _parse_version(latest_tag)
 
+            log = logging.getLogger("UpdateChecker")
             if latest > current:
-                logging.getLogger("UpdateChecker").info(
-                    "New version available: %s (current: %s)", latest_tag, APP_VERSION
-                )
+                log.info("New version available: %s (current: %s)", latest_tag, APP_VERSION)
+                dl = download_url or f"https://github.com/{GITHUB_REPO}/releases"
                 if tray:
-                    tray.show_update_notice(
-                        latest_tag.lstrip("vV"),
-                        download_url or f"https://github.com/{GITHUB_REPO}/releases",
-                    )
+                    tray.show_update_notice(latest_tag.lstrip("vV"), dl)
+                _notify_update(latest_tag, dl)
             else:
-                logging.getLogger("UpdateChecker").info(
-                    "Already up to date (%s).", APP_VERSION
-                )
+                log.info("Already up to date (%s).", APP_VERSION)
         except Exception:  # network error, timeout, JSON parse — all silent
             pass
 
