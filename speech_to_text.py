@@ -1096,29 +1096,21 @@ def _open_settings_modal(root_tk, config_ref: list, on_saved=None) -> None:
     _check(t4, 7, "Show tray icon", tray_var)
 
     # ════════════════════════════════════════════════════════════════════
-    # TAB 5 — AI Assistant (placeholder)
+    # TAB 5 — AI Assistant (not yet implemented)
     # ════════════════════════════════════════════════════════════════════
     t5 = _tab("AI Assistant")
 
-    ai_mode_var = tk.StringVar(value="Standard")
-    _field(t5, 0, "Mode",
-           lambda p: ttk.Combobox(p, textvariable=ai_mode_var,
-                                  values=["Standard", "Code", "Creative",
-                                          "Concise", "Formal"],
-                                  state="readonly", width=30, style="Dark.TCombobox"))
-
-    ai_backend_var = tk.StringVar(value="Groq")
-    _field(t5, 1, "Backend",
-           lambda p: ttk.Combobox(p, textvariable=ai_backend_var,
-                                  values=["Groq",
-                                          "OpenAI  (coming soon)",
-                                          "Anthropic  (coming soon)"],
-                                  state="readonly", width=30, style="Dark.TCombobox"))
-
+    ttk.Label(t5, text="Coming soon", style="Head.TLabel").grid(
+        row=0, column=0, columnspan=2, sticky="w", pady=(0, 12))
     ttk.Label(t5,
-              text="AI Assistant mode is coming soon.\nConfigure tone and backend here.",
-              style="Dim.TLabel").grid(row=2, column=0, columnspan=2, sticky="w",
-                                       pady=(16, 0))
+              text="AI Assistant mode is not yet available in this version.\n\n"
+                   "Planned features:\n"
+                   "  ·  Ask questions by voice or text\n"
+                   "  ·  Screenshot context for visual Q&A\n"
+                   "  ·  Switchable backends (Groq, OpenAI, Anthropic, local)\n"
+                   "  ·  Configurable tone and response style\n\n"
+                   "Settings for this tab will appear here once the feature ships.",
+              style="Dim.TLabel").grid(row=1, column=0, columnspan=2, sticky="w")
 
     # ── Bottom bar: Status + Save/Cancel ─────────────────────────────────
     bottom = ttk.Frame(modal, style="Dark.TFrame", padding=(24, 10, 24, 16))
