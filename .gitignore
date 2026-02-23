@@ -10,6 +10,7 @@ __pycache__/
 build/
 dist/
 *.spec
+!WordScript.spec
 
 # Logs
 *.log
