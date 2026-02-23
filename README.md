@@ -1,157 +1,182 @@
 # WordScript
 
-![version](https://img.shields.io/badge/version-v0.0.1--alpha-orange)
+![version](https://img.shields.io/badge/version-v0.1.0--alpha-orange)
 ![status](https://img.shields.io/badge/status-alpha-yellow)
 ![license](https://img.shields.io/badge/license-MIT-blue)
-![build](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Ffelixontv%2FWordScript%2Fmaster%2Fbuild_info.json&query=%24.build&label=build&color=lightgrey)
 
-**One shortcut. Two modes. Always ready.**
+<p align="center">
+  <img src="public/logo_white_font.png" alt="WordScript Logo" width="320">
+</p>
 
-WordScript is a lightweight, always-on desktop utility that lets you interact with your computer using voice or text — fast, without switching apps or opening a browser tab.
+**One shortcut. Speak. Done.**
 
-- **Transcription mode** — press a hotkey, speak, text gets pasted instantly into whatever is focused
-- **Assistant mode** _(planned)_ — same shortcut, different mode: ask a question and get a concise AI answer, optionally with screenshot context
-
-**Target platform:** Cross-platform Electron app (Windows, macOS, Linux).  
-**Current state:** Working Python prototype (Windows) — validates the core logic before the Electron rebuild.
+WordScript is a lightweight desktop tool that turns speech into text — instantly pasted where your cursor is. Press a hotkey, talk, release. No browser tabs, no app switching, no copy-paste.
 
 ---
 
-## Roadmap
+## What works (v0.1.0-alpha)
 
-| # | Feature | Status |
-|---|---|---|
-| ✅ | Global hotkey transcription via Groq Whisper | Done |
-| ✅ | Auto-paste into focused app | Done |
-| ✅ | Tap / hold mode, multilingual, tray icon | Done |
-| 🔲 | Audio visualizer overlay while recording | Planned |
-| 🔲 | AI assistant mode (voice or text input) | Planned |
-| 🔲 | Screenshot context for visual Q&A | Planned |
-| 🔲 | Switchable AI backends (Groq, Claude, local) | Planned |
-| 🔲 | Electron rebuild — cross-platform | Planned |
+- Global hotkey to start/stop recording (tap or hold mode)
+- Real-time audio visualizer overlay (pill-shaped, always on top)
+- Transcription via Groq Whisper API (~1s turnaround)
+- AI post-processing: fixes grammar, punctuation, filler words via LLM
+- Auto-paste into any focused application
+- Mute toggle (click mic icon in visualizer)
+- Full settings UI (API keys, models, audio device, hotkey, prompt — all configurable without touching files)
+- System tray icon with status
+- Audio feedback sounds (start, stop, abort, error)
+- Automatic update check via GitHub Releases
+- Per-user config stored in `%APPDATA%\WordScript\` (Windows), `~/.config/WordScript/` (Linux), `~/Library/Application Support/WordScript/` (macOS)
+- Cross-platform config and paste logic (Windows, macOS, Linux)
 
-See [VISION.md](VISION.md) for the full design rationale and open questions.
+## What doesn't work yet
+
+- AI assistant mode (voice/text questions, screenshot context) — planned
+- Switchable AI backends (Claude, local models) — planned
+- Electron rebuild for native cross-platform app — planned
+- Auto-updater (currently: notification only, manual download)
+- No installer — single `.exe` portable binary
 
 ---
 
-## Quick Start (Python Prototype)
+## Quick Start
 
-### 1. One-time setup after cloning
+### Option A: Download the binary
+
+1. Go to [Releases](https://github.com/felixontv/WordScript/releases) and download `WordScript.exe`
+2. Run it — on first launch, the settings window opens automatically
+3. Enter your [Groq API key](https://console.groq.com/keys) and hit Save
+
+### Option B: Run from source
 
 ```powershell
-.\setup.ps1
+git clone https://github.com/felixontv/WordScript.git
+cd WordScript
+.\setup.ps1          # creates venv, installs deps, copies config template
 ```
 
-> Installs dependencies, creates `config.json`, and activates git hooks so `BUILD_ID` updates automatically on every commit.
-
-### 2. Configure
-
-Copy the example config and fill in your keys:
-
-```bash
-cp config.example.json config.json
-```
-
-Edit **config.json** and set your Groq API key (get one at https://console.groq.com).  
-Adjust hotkey, activation mode, and audio settings as needed.
-
-| Setting                 | Default                  | Description                                                        |
-| ----------------------- | ------------------------ | ------------------------------------------------------------------ |
-| `groq_api_key`          | _(your key)_             | Groq API key from https://console.groq.com                         |
-| `model`                 | `whisper-large-v3-turbo` | Whisper model to use                                               |
-| `language`              | `""` (empty)             | Language code (`en`, `de`, `fr`, etc.) or empty for auto-detection |
-| `hotkey`                | `ctrl_l+win`             | Global hotkey combo                                                |
-| `activation_mode`       | `tap`                    | `tap` = toggle on/off, `hold` = hold to record                     |
-| `sample_rate`           | `16000`                  | Audio sample rate in Hz                                            |
-| `max_recording_seconds` | `120`                    | Max recording duration                                             |
-| `auto_paste`            | `true`                   | Auto Ctrl+V after transcription                                    |
-| `show_tray_icon`        | `true`                   | Show system tray icon                                              |
-| `play_sounds`           | `true`                   | Beep feedback on start/stop                                        |
-
-### 3. Run
+Edit `config.json` with your Groq API key, then:
 
 ```bash
 python speech_to_text.py
 ```
 
-A tray icon appears (green = idle, red = recording). Press the hotkey to start/stop. Transcription is pasted automatically within ~1 second.
-
-**Multilingual:** Leave `language` empty for auto-detection across 90+ languages. Set `"language": "en"` or `"de"` to force a specific one.
-
 ---
 
 ## Usage
 
-1. **Start the script** — it sits silently in the background.
-2. **Press Ctrl+Left Win** (or your configured hotkey) to start recording. Short beep confirms.
-3. **Press the hotkey again** (tap mode) or **release it** (hold mode) to stop. Two beeps confirm.
-4. Audio is sent to Groq Whisper → transcription auto-pasted into the active window.
+1. **Launch WordScript** — a small pill-shaped visualizer appears near the bottom of your screen.
+2. **Press the hotkey** (`Ctrl + Left Win` by default) to start recording. A short beep confirms.
+3. **Press again** (tap mode) or **release** (hold mode) to stop. Two beeps confirm.
+4. The transcription is pasted into whatever window is focused — typically within 1 second.
+5. **Click the mic icon** in the visualizer to mute/unmute.
+6. **Click the chevron** (`>`) to open Settings.
+
+To abort a recording: press `Ctrl + Alt` while recording.
 
 ---
 
-## Planned Shortcut Design
+## Settings
 
-| Shortcut | Action |
-| --- | --- |
-| `Ctrl + Win` | Transcribe (current) |
-| `Ctrl + Alt + Win` | Ask AI — voice or text |
-| `Ctrl + Shift + Win` | Ask AI + screenshot context |
+All settings are accessible from the in-app Settings panel (click `>` on the visualizer). No need to edit files manually.
+
+| Setting | Default | Description |
+|---|---|---|
+| Groq API Key | _(empty)_ | Required. Get one at https://console.groq.com/keys |
+| Whisper Model | `whisper-large-v3-turbo` | Speech recognition model |
+| Language | _(auto)_ | Language code (`en`, `de`, `fr`, ...) or empty for auto-detect |
+| AI Correction | On | Post-process transcription with an LLM to fix errors |
+| Correction Model | `llama-3.3-70b-versatile` | LLM used for correction |
+| Hotkey | `ctrl_l+win` | Global keyboard shortcut |
+| Activation Mode | `tap` | `tap` = toggle, `hold` = push-to-talk |
+| Audio Device | _(system default)_ | Select a specific microphone |
+| Sample Rate | `24000` | Audio sample rate (Hz) |
+| Auto-paste | On | Paste transcription automatically via Ctrl+V / Cmd+V |
+| Play Sounds | On | Audio feedback on start/stop/error |
+| Tray Icon | On | Show system tray icon |
 
 ---
 
-## Hotkey Options
+## Hotkey Reference
 
-| Key name              | Actual key         |
-| --------------------- | ------------------ |
-| `ctrl_l` / `ctrl_r`   | Left / Right Ctrl  |
-| `alt_l` / `alt_r`     | Left / Right Alt   |
+Combine keys with `+`. Example: `ctrl_l+win`, `ctrl_l+alt_l+space`
+
+| Key | Description |
+|---|---|
+| `ctrl_l` / `ctrl_r` | Left / Right Ctrl |
+| `alt_l` / `alt_r` | Left / Right Alt |
 | `shift_l` / `shift_r` | Left / Right Shift |
-| `win` / `cmd`         | Windows key        |
-| `f1`–`f12`            | Function keys      |
-| Any single char       | e.g. `t`, `r`      |
+| `win` / `cmd` | Windows / Command key |
+| `f1` – `f12` | Function keys |
 
 ---
 
-## Run at Startup (Optional)
-
-1. Press **Win+R** → `shell:startup` → Enter
-2. Create a shortcut to `pythonw speech_to_text.py`, set "Start in" to this folder
-
----
-
-## Build as .exe (Optional)
+## Build from Source
 
 ```bash
 pip install pyinstaller
-pyinstaller WordScript.spec
+pyinstaller WordScript.spec --noconfirm
 ```
 
-Output: `dist/WordScript.exe`. Place `config.json` in the same directory.
+Output: `dist/WordScript.exe` — a single portable binary with no external dependencies.
+
+---
+
+## Project Structure
+
+```
+speech_to_text.py        Main application (single file)
+config.example.json      Config template
+config.json              Your local config (gitignored)
+WordScript.spec          PyInstaller build spec
+setup.ps1                One-time dev setup script
+requirements.txt         Python dependencies
+public/                  Logo and font assets
+  logo.png               Logo mark
+  logo_white_font.png    Logo + text for dark backgrounds
+  logo_black_font.png    Logo + text for light backgrounds
+  font_white.png         Wordmark for dark backgrounds
+  font_black.png         Wordmark for light backgrounds
+```
+
+---
+
+## Architecture
+
+```
+SpeechToTextApp            Main orchestrator
+  ├── AudioRecorder        sounddevice mic capture -> WAV
+  ├── TranscriptionService Groq Whisper + LLM correction
+  ├── TextPaster           Clipboard + paste simulation
+  ├── HotkeyManager        pynput global hotkey listener
+  ├── VisualizerOverlay    Tkinter always-on-top pill UI
+  ├── TrayIcon             pystray system tray (optional)
+  └── SoundFeedback        sounddevice notification tones
+```
 
 ---
 
 ## Troubleshooting
 
-| Problem | Solution |
-| --- | --- |
-| "No audio input device found" | Check system sound settings → Input |
-| No beep sounds | Check `play_sounds` config, ensure sound card is active |
-| Hotkey doesn't work | Try running as Administrator. Some apps intercept Win key combos. |
-| Transcription errors | Check Groq API key and internet connection |
+| Problem | Fix |
+|---|---|
+| No audio device found | Check system sound settings, select the correct mic in Settings |
+| Hotkey doesn't work | Try running as Administrator. Some apps block Win key combos. |
+| Transcription errors | Verify your Groq API key and internet connection |
+| 30s+ delay on second use | Should be fixed in v0.1.0-alpha. If it persists, restart the app. |
 | Tray icon missing | Ensure `pystray` and `Pillow` are installed |
 
 ---
 
-## Architecture (Python Prototype)
+## Brand Assets
 
-```
-SpeechToTextApp          ← main orchestrator
-├── AudioRecorder        ← sounddevice microphone capture → WAV bytes
-├── TranscriptionService ← Groq Whisper API client
-├── TextPaster           ← clipboard + Ctrl+V simulation
-├── HotkeyManager        ← pynput global keyboard listener
-├── TrayIcon             ← pystray system tray (optional)
-└── SoundFeedback        ← winsound beeps (optional)
-```
+The `public/` folder contains logo and wordmark files:
 
+- **`_white` variants** — use on dark backgrounds
+- **`_black` variants** — use on light backgrounds
 
+---
+
+## License
+
+[MIT](LICENSE)

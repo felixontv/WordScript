@@ -1,5 +1,5 @@
 {
-    "groq_api_key": "YOUR_GROQ_API_KEY_HERE",
+    "groq_api_key": "",
     "model": "whisper-large-v3-turbo",
     "language": "",
     "prompt": "",
