@@ -1,6 +1,6 @@
 # WordScript
 
-![version](https://img.shields.io/badge/version-v0.1.0--alpha-orange)
+![version](https://img.shields.io/badge/version-v0.1.1--alpha-orange)
 ![status](https://img.shields.io/badge/status-alpha-yellow)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
@@ -14,7 +14,7 @@ WordScript is a lightweight desktop tool that turns speech into text — instant
 
 ---
 
-## What works (v0.1.0-alpha)
+## What works (v0.1.1-alpha)
 
 - Global hotkey to start/stop recording (tap or hold mode)
 - Real-time audio visualizer overlay (pill-shaped, always on top)
@@ -43,9 +43,23 @@ WordScript is a lightweight desktop tool that turns speech into text — instant
 
 ### Option A: Download the binary
 
-1. Go to [Releases](https://github.com/felixontv/WordScript/releases) and download `WordScript.exe`
+Grab the latest release for your platform from [Releases](https://github.com/felixontv/WordScript/releases/latest):
+
+| Platform | Download | Notes |
+|---|---|---|
+| Windows | [WordScript-windows.exe](https://github.com/felixontv/WordScript/releases/latest/download/WordScript-windows.exe) | Portable, no install needed |
+| macOS | [WordScript-macos](https://github.com/felixontv/WordScript/releases/latest/download/WordScript-macos) | Run `chmod +x WordScript-macos` first |
+| Linux | [WordScript-linux](https://github.com/felixontv/WordScript/releases/latest/download/WordScript-linux) | Run `chmod +x WordScript-linux` first |
+
+1. Download the file for your OS
 2. Run it — on first launch, the settings window opens automatically
 3. Enter your [Groq API key](https://console.groq.com/keys) and hit Save
+
+> **macOS/Linux:** After downloading, make the binary executable:
+> ```bash
+> chmod +x WordScript-macos   # or WordScript-linux
+> ./WordScript-macos
+> ```
 
 ### Option B: Run from source
 
@@ -118,7 +132,9 @@ pip install pyinstaller
 pyinstaller WordScript.spec --noconfirm
 ```
 
-Output: `dist/WordScript.exe` — a single portable binary with no external dependencies.
+Output name depends on your OS: `WordScript-windows.exe`, `WordScript-macos`, or `WordScript-linux` in `dist/`.
+
+Automated builds for all three platforms run via GitHub Actions on every tagged release.
 
 ---
 
@@ -128,15 +144,11 @@ Output: `dist/WordScript.exe` — a single portable binary with no external depe
 speech_to_text.py        Main application (single file)
 config.example.json      Config template
 config.json              Your local config (gitignored)
-WordScript.spec          PyInstaller build spec
+WordScript.spec          PyInstaller build spec (cross-platform)
 setup.ps1                One-time dev setup script
 requirements.txt         Python dependencies
 public/                  Logo and font assets
-  logo.png               Logo mark
-  logo_white_font.png    Logo + text for dark backgrounds
-  logo_black_font.png    Logo + text for light backgrounds
-  font_white.png         Wordmark for dark backgrounds
-  font_black.png         Wordmark for light backgrounds
+.github/workflows/       CI/CD — auto-builds on tag push
 ```
 
 ---
@@ -163,7 +175,7 @@ SpeechToTextApp            Main orchestrator
 | No audio device found | Check system sound settings, select the correct mic in Settings |
 | Hotkey doesn't work | Try running as Administrator. Some apps block Win key combos. |
 | Transcription errors | Verify your Groq API key and internet connection |
-| 30s+ delay on second use | Should be fixed in v0.1.0-alpha. If it persists, restart the app. |
+| 30s+ delay on second use | Should be fixed in v0.1.1-alpha. If it persists, restart the app. |
 | Tray icon missing | Ensure `pystray` and `Pillow` are installed |
 
 ---

@@ -1,4 +1,39 @@
 # -*- mode: python ; coding: utf-8 -*-
+import sys
+
+# ── Platform-aware output name & hidden imports ───────────────────────────
+if sys.platform == 'win32':
+    _name = 'WordScript-windows'
+    _console = False
+    _plyer_platform = [
+        'plyer.platforms.win',
+        'plyer.platforms.win.notification',
+    ]
+elif sys.platform == 'darwin':
+    _name = 'WordScript-macos'
+    _console = False
+    _plyer_platform = [
+        'plyer.platforms.macosx',
+        'plyer.platforms.macosx.notification',
+    ]
+else:
+    _name = 'WordScript-linux'
+    _console = False
+    _plyer_platform = [
+        'plyer.platforms.linux',
+        'plyer.platforms.linux.notification',
+    ]
+
+_hidden = [
+    'numpy', 'sounddevice', 'groq',
+    'pyautogui', 'pyperclip',
+    'pynput', 'pynput.keyboard',
+    'pystray',
+    'PIL', 'PIL.Image', 'PIL.ImageDraw', 'PIL.ImageFont',
+    'tkinter',
+    'packaging', 'packaging.version',
+    'plyer',
+] + _plyer_platform
 
 
 a = Analysis(
@@ -6,7 +41,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=['numpy', 'sounddevice', 'groq', 'pyautogui', 'pyperclip', 'pynput', 'pynput.keyboard', 'pystray', 'PIL', 'PIL.Image', 'PIL.ImageDraw', 'PIL.ImageFont', 'tkinter', 'packaging', 'packaging.version', 'plyer', 'plyer.platforms', 'plyer.platforms.win', 'plyer.platforms.win.notification'],
+    hiddenimports=_hidden,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -22,14 +57,14 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='WordScript',
+    name=_name,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,
+    console=_console,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
