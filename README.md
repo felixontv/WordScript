@@ -33,7 +33,6 @@ WordScript is a lightweight desktop tool that turns speech into text — instant
 
 - AI assistant mode (voice/text questions, screenshot context) — planned
 - Switchable AI backends (Claude, local models) — planned
-- Electron rebuild for native cross-platform app — planned
 - Auto-updater (currently: notification only, manual download)
 - No installer — single `.exe` portable binary
 
@@ -93,7 +92,7 @@ To abort a recording: press `Ctrl + Alt` while recording.
 ---
 
 ## Settings
-
+  
 All settings are accessible from the in-app Settings panel (click `>` on the visualizer). No need to edit files manually.
 
 | Setting | Default | Description |
