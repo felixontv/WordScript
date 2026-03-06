@@ -358,11 +358,6 @@ class TranscriptionService:
                 return ""
             
             self.logger.info("✓ Whisper (%.2fs): %s", elapsed, text[:100])
-            
-            # Post-process with LLM if enabled
-            if self.config.post_process and text:
-                text = self._correct_with_llm(text)
-            
             return text
 
         except Exception as exc:
@@ -375,6 +370,12 @@ class TranscriptionService:
                 self.logger.error("❌ Groq API error: %s", exc)
                 return f"[Transcription error: {exc}]"
     
+    def correct(self, text: str) -> str:
+        """Run LLM post-correction on already-transcribed text. Returns original on error/timeout."""
+        if not text:
+            return text
+        return self._correct_with_llm(text)
+
     # ------------------------------------------------------------------
     # Wörter-Überlappungs-Check: Prüft ob der korrigierte Text wirklich
     # vom Original abgeleitet ist (und nicht eine Assistenten-Antwort)
@@ -1680,7 +1681,6 @@ class SpeechToTextApp:
         )
         self.tray: Optional[TrayIcon] = None
         self._running = True
-        self._transcription_lock = threading.Lock()
 
     # --- lifecycle ---
 
@@ -1815,15 +1815,25 @@ class SpeechToTextApp:
         self.hotkeys._toggled_on = False
 
     def _transcribe_and_paste(self, wav_bytes: bytes) -> None:
-        """Send audio to Groq and paste the result."""
-        with self._transcription_lock:
-            text = self.transcriber.transcribe(wav_bytes)
-            if text and not text.startswith("[Transcription error"):
-                self.paster.paste(text)
-            elif text.startswith("[Transcription error"):
-                self.logger.error(text)
-                if self.config.play_sounds:
-                    self.sounds.play_error()
+        """Transcribe in two stages: Whisper pastes immediately, LLM correction updates clipboard silently."""
+        # Stage 1: Whisper (~3-5s) — user gets text right away
+        text = self.transcriber.transcribe(wav_bytes)
+        if not text:
+            return
+        if text.startswith("[Transcription error"):
+            self.logger.error(text)
+            if self.config.play_sounds:
+                self.sounds.play_error()
+            return
+        self.paster.paste(text)
+
+        # Stage 2: LLM correction — silently update clipboard only, no re-paste
+        if self.config.post_process:
+            corrected = self.transcriber.correct(text)
+            if corrected and corrected != text:
+                clip_text = corrected + (' ' if corrected[-1] in '.!?' else '')
+                pyperclip.copy(clip_text)
+                self.logger.info("Clipboard silently updated with LLM-corrected text.")
 
 
 # ---------------------------------------------------------------------------
