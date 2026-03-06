@@ -285,6 +285,10 @@ class TranscriptionService:
             Groq(api_key=config.groq_api_key, max_retries=0, timeout=15.0)
             if config.groq_api_key else None
         )
+        self._correction_client = (
+            Groq(api_key=config.groq_api_key, max_retries=0, timeout=6.0)
+            if config.groq_api_key else None
+        )
         if not config.groq_api_key:
             self.logger.warning("No Groq API key set — open Settings (chevron) to enter yours.")
 
@@ -296,9 +300,15 @@ class TranscriptionService:
                 max_retries=0,
                 timeout=15.0,
             )
+            self._correction_client = Groq(
+                api_key=self.config.groq_api_key,
+                max_retries=0,
+                timeout=6.0,
+            )
             self.logger.info("Groq client reloaded with new API key.")
         else:
             self._client = None
+            self._correction_client = None
 
     def transcribe(self, wav_bytes: bytes) -> str:
         """Send WAV audio bytes to Groq and return the transcription text."""
@@ -394,7 +404,7 @@ class TranscriptionService:
                 "Bei korrektem Text: Originaltext Zeichen für Zeichen zurück. "
                 "Du bist ein Filter, kein Assistent.")
 
-            response = self._client.chat.completions.create(
+            response = self._correction_client.chat.completions.create(
                 model=self.config.correction_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -506,6 +516,7 @@ class TextPaster:
     def __init__(self, config: Config):
         self.config = config
         self.logger = logging.getLogger("TextPaster")
+        self._kb = keyboard.Controller()
 
     def paste(self, text: str) -> None:
         """Put text on the clipboard and optionally auto-paste via Ctrl+V."""
@@ -522,11 +533,12 @@ class TextPaster:
         if self.config.auto_paste:
             # Small delay to ensure the target window is focused
             time.sleep(0.15)
-            # macOS uses Cmd+V; Windows and Linux use Ctrl+V
-            if sys.platform == "darwin":
-                pyautogui.hotkey("command", "v")
-            else:
-                pyautogui.hotkey("ctrl", "v")
+            # pynput Controller guarantees modifier release via context manager;
+            # avoids synthetic events confusing pynput's own WH_KEYBOARD_LL hook
+            paste_key = keyboard.Key.cmd if sys.platform == "darwin" else keyboard.Key.ctrl
+            with self._kb.pressed(paste_key):
+                self._kb.press('v')
+                self._kb.release('v')
             self.logger.info("Auto-pasted into active window.")
 
 
@@ -1514,6 +1526,7 @@ class HotkeyManager:
         # Abort hotkey: Ctrl+Alt
         self._abort_keys = {keyboard.Key.ctrl_l, keyboard.Key.alt_l}
         self._pressed_keys: set = set()
+        self._keys_lock = threading.Lock()
         self._hotkey_active = False  # Is the hotkey combo currently held?
         self._abort_active = False   # Is the abort combo currently held?
         self._toggled_on = False     # For tap mode: is recording toggled on?
@@ -1539,6 +1552,10 @@ class HotkeyManager:
     def stop(self) -> None:
         if self._listener:
             self._listener.stop()
+        with self._keys_lock:
+            self._pressed_keys.clear()
+        self._hotkey_active = False
+        self._abort_active = False
 
     def reload_hotkey(self) -> None:
         """Re-parse the hotkey combo after a settings change at runtime."""
@@ -1572,34 +1589,44 @@ class HotkeyManager:
         return key
 
     def _on_press(self, key) -> None:
-        normalized = self._normalize_key(key)
-        self._pressed_keys.add(normalized)
+        try:
+            normalized = self._normalize_key(key)
+            with self._keys_lock:
+                self._pressed_keys.add(normalized)
+                abort_hit = self._abort_keys.issubset(self._pressed_keys)
+                hotkey_hit = self._hotkey_keys.issubset(self._pressed_keys)
 
-        # Check abort hotkey first (Ctrl+Alt)
-        if self._abort_keys.issubset(self._pressed_keys):
-            if not self._abort_active:
-                self._abort_active = True
-                self._handle_abort_press()
-        # Then check main hotkey
-        elif self._hotkey_keys.issubset(self._pressed_keys):
-            if not self._hotkey_active:
-                self._hotkey_active = True
-                self._handle_hotkey_press()
+            # Check abort hotkey first (Ctrl+Alt)
+            if abort_hit:
+                if not self._abort_active:
+                    self._abort_active = True
+                    threading.Thread(target=self._handle_abort_press, daemon=True).start()
+            # Then check main hotkey
+            elif hotkey_hit:
+                if not self._hotkey_active:
+                    self._hotkey_active = True
+                    threading.Thread(target=self._handle_hotkey_press, daemon=True).start()
+        except Exception as e:
+            self.logger.error("_on_press error: %s", e, exc_info=True)
 
     def _on_release(self, key) -> None:
-        normalized = self._normalize_key(key)
-        self._pressed_keys.discard(normalized)
-        # Also discard the original key in case it wasn't normalized
-        self._pressed_keys.discard(key)
+        try:
+            normalized = self._normalize_key(key)
+            with self._keys_lock:
+                self._pressed_keys.discard(normalized)
+                # Also discard the original key in case it wasn't normalized
+                self._pressed_keys.discard(key)
+                abort_held = self._abort_keys.issubset(self._pressed_keys)
+                hotkey_held = self._hotkey_keys.issubset(self._pressed_keys)
 
-        if not self._abort_keys.issubset(self._pressed_keys):
-            if self._abort_active:
+            if not abort_held and self._abort_active:
                 self._abort_active = False
-        
-        if not self._hotkey_keys.issubset(self._pressed_keys):
-            if self._hotkey_active:
+
+            if not hotkey_held and self._hotkey_active:
                 self._hotkey_active = False
-                self._handle_hotkey_release()
+                threading.Thread(target=self._handle_hotkey_release, daemon=True).start()
+        except Exception as e:
+            self.logger.error("_on_release error: %s", e, exc_info=True)
 
     def _handle_hotkey_press(self) -> None:
         if self.config.activation_mode == "hold":
