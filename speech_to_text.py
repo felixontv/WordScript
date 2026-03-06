@@ -9,6 +9,7 @@ Author: Auto-generated
 License: MIT
 """
 
+import concurrent.futures
 import io
 import json
 import logging
@@ -311,37 +312,53 @@ class TranscriptionService:
             self._correction_client = None
 
     def transcribe(self, wav_bytes: bytes) -> str:
-        """Send WAV audio bytes to Groq and return the transcription text."""
+        """Send WAV audio bytes to Groq and return the transcription text.
+
+        Uses a concurrent.futures wall-clock timeout (20s) because httpx's
+        per-read timeout does not guard against servers that send 100-Continue
+        quickly and then stall — as seen with Groq rate-limiting (30s delays).
+        """
         if not wav_bytes:
             return ""
         if not self._client:
             self.logger.error("No API key — open Settings (chevron button) to enter your Groq key.")
-            return ""  # silent — user already sees the settings prompt
+            return ""
 
         audio_size_kb = len(wav_bytes) / 1024
         self.logger.info("Sending %.1f KB to Groq Whisper (model: %s)...", audio_size_kb, self.config.model)
         start = time.perf_counter()
 
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(self._do_whisper_request, wav_bytes, start)
+            try:
+                return future.result(timeout=20.0)
+            except concurrent.futures.TimeoutError:
+                elapsed = time.perf_counter() - start
+                self.logger.error(
+                    "⚠ Groq Whisper timed out after %.0fs — likely rate-limited. "
+                    "Check quota at console.groq.com/usage",
+                    elapsed,
+                )
+                return ""
+
+    def _do_whisper_request(self, wav_bytes: bytes, start: float) -> str:
+        """Perform the actual Groq Whisper API call (runs inside executor thread)."""
         try:
-            # Groq SDK expects a file-like tuple: (filename, file_bytes, mime)
             params = {
                 "file": ("recording.wav", wav_bytes),
                 "model": self.config.model,
                 "response_format": "text",
-                "temperature": 0.0,  # Deterministisch = genauer
+                "temperature": 0.0,
             }
-            # Only add language if specified (empty string enables auto-detection)
             if self.config.language:
                 params["language"] = self.config.language
-            
-            # Add prompt for context if specified
             if self.config.prompt:
                 params["prompt"] = self.config.prompt
-            
+
             transcription = self._client.audio.transcriptions.create(**params)
             elapsed = time.perf_counter() - start
             text = transcription.strip() if isinstance(transcription, str) else transcription.text.strip()
-            
+
             # Filter obvious hallucinations (Whisper training data artifacts)
             hallucinations = [
                 "thanks for watching", "thank you for watching",
@@ -356,12 +373,17 @@ class TranscriptionService:
             if text.lower() in hallucinations or (len(text) <= 2 and text in [".", ".."]):
                 self.logger.info("Filtered likely hallucination: '%s'", text)
                 return ""
-            
+
+            if elapsed > 8.0:
+                self.logger.warning(
+                    "⚠ Groq API slow (%.0fs) — possible rate limiting. "
+                    "Check console.groq.com/usage",
+                    elapsed,
+                )
             self.logger.info("✓ Whisper (%.2fs): %s", elapsed, text[:100])
             return text
 
         except Exception as exc:
-            # Check for rate limiting
             error_str = str(exc)
             if "429" in error_str or "rate_limit" in error_str.lower():
                 self.logger.error("⚠ RATE LIMIT EXCEEDED: %s", exc)
@@ -371,10 +393,16 @@ class TranscriptionService:
                 return f"[Transcription error: {exc}]"
     
     def correct(self, text: str) -> str:
-        """Run LLM post-correction on already-transcribed text. Returns original on error/timeout."""
+        """Run LLM post-correction with a hard 8s wall-clock timeout."""
         if not text:
             return text
-        return self._correct_with_llm(text)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(self._correct_with_llm, text)
+            try:
+                return future.result(timeout=8.0)
+            except concurrent.futures.TimeoutError:
+                self.logger.warning("LLM correction timed out (8s), using original text")
+                return text
 
     # ------------------------------------------------------------------
     # Wörter-Überlappungs-Check: Prüft ob der korrigierte Text wirklich
