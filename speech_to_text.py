@@ -28,7 +28,6 @@ from pathlib import Path
 from typing import Optional, List
 
 import numpy as np
-import pyautogui
 import pyperclip
 import sounddevice as sd
 from groq import Groq
@@ -41,6 +40,12 @@ try:
     TRAY_AVAILABLE = True
 except ImportError:
     TRAY_AVAILABLE = False
+
+try:
+    from faster_whisper import WhisperModel
+    FASTER_WHISPER_AVAILABLE = True
+except ImportError:
+    FASTER_WHISPER_AVAILABLE = False
 
 # ---------------------------------------------------------------------------
 # App identity
@@ -104,6 +109,10 @@ class Config:
     # AI-Korrektur nach Transkription
     post_process: bool = True  # Text durch LLM korrigieren lassen
     correction_model: str = "llama-3.3-70b-versatile"  # Groq LLM für Korrektur
+
+    # Transcription backend
+    backend: str = "groq"           # "groq" (cloud API) or "local" (faster-whisper)
+    local_model: str = "base"       # faster-whisper model: tiny, base, small, medium, large-v3
 
     hotkey: str = ("ctrl_l+cmd" if sys.platform == "darwin"
                    else "ctrl_l+alt_l" if sys.platform != "win32"
@@ -328,18 +337,23 @@ class TranscriptionService:
         self.logger.info("Sending %.1f KB to Groq Whisper (model: %s)...", audio_size_kb, self.config.model)
         start = time.perf_counter()
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(self._do_whisper_request, wav_bytes, start)
-            try:
-                return future.result(timeout=20.0)
-            except concurrent.futures.TimeoutError:
-                elapsed = time.perf_counter() - start
-                self.logger.error(
-                    "⚠ Groq Whisper timed out after %.0fs — likely rate-limited. "
-                    "Check quota at console.groq.com/usage",
-                    elapsed,
-                )
-                return ""
+        # Use manual shutdown(wait=False) so the wall-clock timeout is real:
+        # the 'with' form calls shutdown(wait=True) on exit which re-blocks
+        # until the HTTP thread finishes — defeating the whole point.
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(self._do_whisper_request, wav_bytes, start)
+        try:
+            return future.result(timeout=20.0)
+        except concurrent.futures.TimeoutError:
+            elapsed = time.perf_counter() - start
+            self.logger.error(
+                "⚠ Groq Whisper timed out after %.0fs — likely rate-limited. "
+                "Check quota at console.groq.com/usage",
+                elapsed,
+            )
+            return ""
+        finally:
+            executor.shutdown(wait=False)  # release immediately; thread dies in background
 
     def _do_whisper_request(self, wav_bytes: bytes, start: float) -> str:
         """Perform the actual Groq Whisper API call (runs inside executor thread)."""
@@ -396,13 +410,15 @@ class TranscriptionService:
         """Run LLM post-correction with a hard 8s wall-clock timeout."""
         if not text:
             return text
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(self._correct_with_llm, text)
-            try:
-                return future.result(timeout=8.0)
-            except concurrent.futures.TimeoutError:
-                self.logger.warning("LLM correction timed out (8s), using original text")
-                return text
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(self._correct_with_llm, text)
+        try:
+            return future.result(timeout=8.0)
+        except concurrent.futures.TimeoutError:
+            self.logger.warning("LLM correction timed out (8s), using original text")
+            return text
+        finally:
+            executor.shutdown(wait=False)
 
     # ------------------------------------------------------------------
     # Wörter-Überlappungs-Check: Prüft ob der korrigierte Text wirklich
@@ -551,12 +567,23 @@ class TextPaster:
         """Put text on the clipboard and optionally auto-paste via Ctrl+V."""
         if not text:
             return
-        
+
         # Add space after sentence-ending punctuation for proper separation
         if text and text[-1] in '.!?':
             text = text + ' '
-        
-        pyperclip.copy(text)
+
+        # Retry clipboard write — on Windows another process may briefly hold
+        # the clipboard open (browser, Electron apps, etc.) causing a transient lock.
+        for attempt in range(3):
+            try:
+                pyperclip.copy(text)
+                break
+            except Exception as exc:
+                if attempt < 2:
+                    time.sleep(0.05)
+                else:
+                    self.logger.error("Failed to copy to clipboard after 3 attempts: %s", exc)
+                    return
         self.logger.info("Text copied to clipboard.")
 
         if self.config.auto_paste:
@@ -1284,6 +1311,7 @@ class VisualizerOverlay:
         self._level_queue: Optional[queue.Queue] = None
         self._want_visible = False
         self._is_visible   = False
+        self._processing   = False             # True while transcription is running
         self._muted        = False             # set by SpeechToTextApp
         self._config_ref: list = []            # [Config]
         self._on_mic_click = None              # callback: () -> None
@@ -1295,10 +1323,17 @@ class VisualizerOverlay:
 
     def show(self, level_queue: queue.Queue) -> None:
         self._level_queue = level_queue
+        self._processing = False
+        self._want_visible = True
+
+    def show_processing(self) -> None:
+        """Switch overlay to processing animation while transcription runs."""
+        self._processing = True
         self._want_visible = True
 
     def hide(self) -> None:
         self._want_visible = False
+        self._processing = False
 
     def open_settings(self) -> None:
         """Request the settings modal to open from any thread (thread-safe)."""
@@ -1442,6 +1477,29 @@ class VisualizerOverlay:
         bar_gap = 2
         bar_w   = (bar_w_t - bar_gap * (self._BAR_COUNT - 1)) / self._BAR_COUNT
 
+        # ── Processing animation (sine-wave sweep at reduced brightness) ──
+        _proc_frame = [0]
+
+        def _draw_processing():
+            canvas.delete("all")
+            _draw_pill()
+            max_h = H - 16
+            frame = _proc_frame[0]
+            for i in range(self._BAR_COUNT):
+                phase = frame * 0.12 + i * 0.45
+                lvl = (np.sin(phase) * 0.5 + 0.5) * 0.55 + 0.08
+                bh = max(3, int(lvl * max_h))
+                bx = bar_x1 + i * (bar_w + bar_gap)
+                by = (H - bh) / 2
+                rr = min(bar_w / 2, bh / 2, 3)
+                _draw_rounded_rect(canvas, bx, by, bx + bar_w, by + bh, rr,
+                                   fill="#3a3a3a", outline="")
+            _draw_divider()
+            _draw_mic_icon(canvas, self._MIC_W // 2, H // 2,
+                           color="#3a3a3a", tag="mic")
+            _draw_chevron()
+            _proc_frame[0] += 1
+
         # ── Tick ──────────────────────────────────────────────────────────
         def _tick():
             if self._want_visible and not self._is_visible:
@@ -1455,46 +1513,49 @@ class VisualizerOverlay:
                 root.withdraw()
                 self._is_visible = False
 
-            if self._is_visible and self._level_queue:
-                while True:
-                    try:
-                        levels.append(self._level_queue.get_nowait())
-                    except queue.Empty:
-                        break
-                del levels[: len(levels) - self._BAR_COUNT]
+            if self._is_visible:
+                if self._processing:
+                    _draw_processing()
+                elif self._level_queue:
+                    while True:
+                        try:
+                            levels.append(self._level_queue.get_nowait())
+                        except queue.Empty:
+                            break
+                    del levels[: len(levels) - self._BAR_COUNT]
 
-                canvas.delete("all")
-                _draw_pill()
+                    canvas.delete("all")
+                    _draw_pill()
 
-                is_muted = self._muted
-                bar_col = self._BAR_MUTED if is_muted else self._BAR_COLOR
+                    is_muted = self._muted
+                    bar_col = self._BAR_MUTED if is_muted else self._BAR_COLOR
 
-                # Bars
-                max_h = H - 16
-                for i, lvl in enumerate(levels):
+                    # Bars
+                    max_h = H - 16
+                    for i, lvl in enumerate(levels):
+                        if is_muted:
+                            bh = 3  # flat line when muted
+                        else:
+                            bh = max(3, int(lvl * max_h))
+                        bx = bar_x1 + i * (bar_w + bar_gap)
+                        by = (H - bh) / 2
+                        rr = min(bar_w / 2, bh / 2, 3)
+                        _draw_rounded_rect(canvas,
+                                           bx, by, bx + bar_w, by + bh, rr,
+                                           fill=bar_col, outline="")
+
+                    _draw_divider()
+
+                    # Mic icon — red with slash when muted, white when active
+                    mc = self._MIC_MUTED if is_muted else self._MIC_COLOR
+                    _draw_mic_icon(canvas, self._MIC_W // 2, H // 2,
+                                   color=mc, tag="mic")
                     if is_muted:
-                        bh = 3  # flat line when muted
-                    else:
-                        bh = max(3, int(lvl * max_h))
-                    bx = bar_x1 + i * (bar_w + bar_gap)
-                    by = (H - bh) / 2
-                    rr = min(bar_w / 2, bh / 2, 3)
-                    _draw_rounded_rect(canvas,
-                                       bx, by, bx + bar_w, by + bh, rr,
-                                       fill=bar_col, outline="")
+                        mx, my = self._MIC_W // 2, H // 2
+                        canvas.create_line(mx - 8, my - 10, mx + 8, my + 10,
+                                           fill=self._MIC_MUTED, width=2, tags="mic")
 
-                _draw_divider()
-
-                # Mic icon — red with slash when muted, white when active
-                mc = self._MIC_MUTED if is_muted else self._MIC_COLOR
-                _draw_mic_icon(canvas, self._MIC_W // 2, H // 2,
-                               color=mc, tag="mic")
-                if is_muted:
-                    mx, my = self._MIC_W // 2, H // 2
-                    canvas.create_line(mx - 8, my - 10, mx + 8, my + 10,
-                                       fill=self._MIC_MUTED, width=2, tags="mic")
-
-                _draw_chevron()
+                    _draw_chevron()
 
             # Open settings if requested from outside the Tk thread
             if self._want_settings:
@@ -1807,7 +1868,6 @@ class SpeechToTextApp:
         self.recorder._muted = False
         self.visualizer._muted = False
 
-        self.visualizer.hide()
         wav_bytes = self.recorder.stop()
         if self.config.play_sounds:
             self.sounds.play_stop()
@@ -1818,7 +1878,11 @@ class SpeechToTextApp:
 
         if not wav_bytes:
             self.logger.warning("No audio captured.")
+            self.visualizer.hide()
             return
+
+        # Switch overlay to processing animation while transcription runs
+        self.visualizer.show_processing()
 
         # Transcribe in a background thread so the hotkey listener isn't blocked
         threading.Thread(
@@ -1844,18 +1908,24 @@ class SpeechToTextApp:
 
     def _transcribe_and_paste(self, wav_bytes: bytes) -> None:
         """Transcribe in two stages: Whisper pastes immediately, LLM correction updates clipboard silently."""
-        # Stage 1: Whisper (~3-5s) — user gets text right away
-        text = self.transcriber.transcribe(wav_bytes)
-        if not text:
-            return
-        if text.startswith("[Transcription error"):
-            self.logger.error(text)
-            if self.config.play_sounds:
-                self.sounds.play_error()
-            return
-        self.paster.paste(text)
+        try:
+            # Stage 1: Whisper (~3-5s) — user gets text right away
+            text = self.transcriber.transcribe(wav_bytes)
+            if not text:
+                return
+            # All API error/rate-limit messages start with '[' — never paste them
+            if text.startswith("["):
+                self.logger.warning("Transcription returned non-text result (not pasting): %s", text)
+                if self.config.play_sounds:
+                    self.sounds.play_error()
+                return
+            self.paster.paste(text)
+        finally:
+            # Always hide the processing overlay, regardless of outcome
+            self.visualizer.hide()
 
         # Stage 2: LLM correction — silently update clipboard only, no re-paste
+        # (only reached if Stage 1 completed without return/exception)
         if self.config.post_process:
             corrected = self.transcriber.correct(text)
             if corrected and corrected != text:
