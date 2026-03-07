@@ -26,7 +26,7 @@ else:
 
 _hidden = [
     'numpy', 'sounddevice', 'groq',
-    'pyautogui', 'pyperclip',
+    'pyperclip',
     'pynput', 'pynput.keyboard',
     'pystray',
     'PIL', 'PIL.Image', 'PIL.ImageDraw', 'PIL.ImageFont',

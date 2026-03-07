@@ -51,7 +51,7 @@ except ImportError:
 # App identity
 # ---------------------------------------------------------------------------
 
-APP_VERSION  = "0.1.1-alpha"              # bump on each release
+APP_VERSION  = "0.1.2-alpha"              # bump on each release
 GITHUB_REPO  = "felixontv/WordScript"     # owner/repo on GitHub
 
 # ---------------------------------------------------------------------------
@@ -1663,6 +1663,20 @@ class HotkeyManager:
                 keys.add(keyboard.KeyCode.from_char(part))
             else:
                 self.logger.warning("Unknown key in hotkey config: '%s'", part)
+        if not keys:
+            # An empty set matches every key press (subset of anything).
+            # Fall back to the platform default to prevent runaway triggering.
+            if sys.platform == "win32":
+                fallback = {keyboard.Key.ctrl_l, keyboard.Key.cmd}
+            elif sys.platform == "darwin":
+                fallback = {keyboard.Key.ctrl_l, keyboard.Key.cmd}
+            else:
+                fallback = {keyboard.Key.ctrl_l, keyboard.Key.alt_l}
+            self.logger.error(
+                "Hotkey '%s' resolved to no valid keys — falling back to platform default.",
+                hotkey_str,
+            )
+            return fallback
         return keys
 
     def _normalize_key(self, key) -> keyboard.Key:
@@ -1681,39 +1695,55 @@ class HotkeyManager:
     def _on_press(self, key) -> None:
         try:
             normalized = self._normalize_key(key)
+            fire_abort = False
+            fire_hotkey = False
+
             with self._keys_lock:
                 self._pressed_keys.add(normalized)
-                abort_hit = self._abort_keys.issubset(self._pressed_keys)
+                abort_hit  = self._abort_keys.issubset(self._pressed_keys)
                 hotkey_hit = self._hotkey_keys.issubset(self._pressed_keys)
 
-            # Check abort hotkey first (Ctrl+Alt)
-            if abort_hit:
-                if not self._abort_active:
+                # Atomically check-and-set flags inside the lock to prevent
+                # double-activation from rapid key events or key-repeat.
+                if abort_hit and not self._abort_active:
                     self._abort_active = True
-                    threading.Thread(target=self._handle_abort_press, daemon=True).start()
-            # Then check main hotkey
-            elif hotkey_hit:
-                if not self._hotkey_active:
+                    fire_abort = True
+                elif hotkey_hit and not self._hotkey_active:
                     self._hotkey_active = True
-                    threading.Thread(target=self._handle_hotkey_press, daemon=True).start()
+                    fire_hotkey = True
+
+            if fire_abort:
+                threading.Thread(target=self._handle_abort_press, daemon=True).start()
+            elif fire_hotkey:
+                threading.Thread(target=self._handle_hotkey_press, daemon=True).start()
         except Exception as e:
             self.logger.error("_on_press error: %s", e, exc_info=True)
 
     def _on_release(self, key) -> None:
         try:
             normalized = self._normalize_key(key)
+            fire_hotkey_release = False
+
             with self._keys_lock:
                 self._pressed_keys.discard(normalized)
-                # Also discard the original key in case it wasn't normalized
-                self._pressed_keys.discard(key)
-                abort_held = self._abort_keys.issubset(self._pressed_keys)
+                self._pressed_keys.discard(key)  # also drop un-normalised form
+                abort_held  = self._abort_keys.issubset(self._pressed_keys)
                 hotkey_held = self._hotkey_keys.issubset(self._pressed_keys)
 
-            if not abort_held and self._abort_active:
-                self._abort_active = False
+                if not abort_held and self._abort_active:
+                    self._abort_active = False
 
-            if not hotkey_held and self._hotkey_active:
-                self._hotkey_active = False
+                if not hotkey_held and self._hotkey_active:
+                    self._hotkey_active = False
+                    # Flush ALL hotkey keys from the pressed set.
+                    # On Windows, the Win/Cmd key release is sometimes swallowed
+                    # by the OS, leaving it stuck in _pressed_keys.  Without this
+                    # flush every subsequent Ctrl press would re-fire the hotkey.
+                    for k in self._hotkey_keys:
+                        self._pressed_keys.discard(k)
+                    fire_hotkey_release = True
+
+            if fire_hotkey_release:
                 threading.Thread(target=self._handle_hotkey_release, daemon=True).start()
         except Exception as e:
             self.logger.error("_on_release error: %s", e, exc_info=True)
@@ -1982,12 +2012,6 @@ def main() -> None:
         print("[INFO] Only one instance can run at a time.")
         sys.exit(0)
     
-    # Quick sanity checks
-    if not CONFIG_FILE.exists():
-        print(f"[ERROR] Config file not found: {CONFIG_FILE}")
-        print("Create config.json with at least your Groq API key.")
-        sys.exit(1)
-
     # Load config early to get log level
     config = Config.load()
     _setup_logging(config.log_level)
