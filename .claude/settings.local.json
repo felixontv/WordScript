@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(gh run list --limit 5)"
+      "Bash(gh run list --limit 5)",
+      "Bash(pyinstaller WordScript.spec --noconfirm)"
     ]
   }
 }
