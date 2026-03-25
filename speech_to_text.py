@@ -9,10 +9,10 @@ Author: Auto-generated
 License: MIT
 """
 
-import concurrent.futures
 import io
 import json
 import logging
+import math
 import os
 import queue
 import socket
@@ -53,6 +53,21 @@ except ImportError:
 
 APP_VERSION  = "0.1.2-alpha"              # bump on each release
 GITHUB_REPO  = "felixontv/WordScript"     # owner/repo on GitHub
+
+# ---------------------------------------------------------------------------
+# Platform detection helpers
+# ---------------------------------------------------------------------------
+
+# True when running inside a Wayland session on Linux.
+# pynput cannot inject keyboard events to foreign windows on Wayland, so
+# auto-paste via simulated Ctrl+V is disabled; text goes to clipboard only.
+_IS_WAYLAND = (
+    sys.platform == "linux"
+    and bool(
+        os.environ.get("WAYLAND_DISPLAY")
+        or os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland"
+    )
+)
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -102,24 +117,24 @@ if getattr(sys, 'frozen', False) and not CONFIG_FILE.exists():
 class Config:
     """Application configuration loaded from config.json."""
     groq_api_key: str = ""
-    model: str = "whisper-large-v3-turbo"  # Schnell und gut genug
+    model: str = "whisper-large-v3"  # Best accuracy for DE/EN mixed speech
     language: str = ""  # Auto-Detection für alle Sprachen
     prompt: str = ""  # Kontext für bessere Erkennung
     
     # AI-Korrektur nach Transkription
     post_process: bool = True  # Text durch LLM korrigieren lassen
-    correction_model: str = "llama-3.3-70b-versatile"  # Groq LLM für Korrektur
+    correction_model: str = "llama-3.1-8b-instant"  # Fast correction; 70B is overkill
 
     # Transcription backend
     backend: str = "groq"           # "groq" (cloud API) or "local" (faster-whisper)
     local_model: str = "base"       # faster-whisper model: tiny, base, small, medium, large-v3
 
-    hotkey: str = ("ctrl_l+cmd" if sys.platform == "darwin"
-                   else "ctrl_l+alt_l" if sys.platform != "win32"
-                   else "ctrl_l+win")    # pynput key combo string
+    hotkey: str = ("ctrl_l+cmd"   if sys.platform == "darwin"
+                   else "ctrl_l+win"    if sys.platform == "win32"
+                   else "ctrl_l+f9")    # Linux: avoid ctrl+alt (workspace switching in GNOME/KDE)
     activation_mode: str = "tap"        # "tap" or "hold"
 
-    sample_rate: int = 24000            # 24kHz for better quality (Whisper supports 16-48kHz)
+    sample_rate: int = 16000            # Whisper native rate — no resampling, ~33% smaller payload
     channels: int = 1
     dtype: str = "int16"
     audio_device: str = ""  # Leer = Standard-Mikrofon, sonst Name des Geräts
@@ -227,10 +242,20 @@ class AudioRecorder:
             self._stream.start()
         except sd.PortAudioError as exc:
             self._recording = False
-            self.logger.error("Failed to open audio device: %s", exc)
-            raise RuntimeError(
-                "No audio input device found. Check microphone settings."
-            ) from exc
+            if sys.platform == "linux":
+                hint = (
+                    "Check that PulseAudio or PipeWire is running and your user is in "
+                    "the 'audio' group. Try: pulseaudio --start  OR  systemctl --user start pipewire"
+                )
+            elif sys.platform == "darwin":
+                hint = (
+                    "macOS microphone access may be blocked. Open System Settings → "
+                    "Privacy & Security → Microphone and enable WordScript."
+                )
+            else:
+                hint = "Check that the microphone is connected and not in use by another app."
+            self.logger.error("Failed to open audio device: %s — %s", exc, hint)
+            raise RuntimeError(f"No audio input device found. {hint}") from exc
 
     def stop(self) -> bytes:
         """Stop recording and return the audio as WAV bytes."""
@@ -323,28 +348,37 @@ class TranscriptionService:
     def transcribe(self, wav_bytes: bytes) -> str:
         """Send WAV audio bytes to Groq and return the transcription text.
 
-        Uses a concurrent.futures wall-clock timeout (20s) because httpx's
-        per-read timeout does not guard against servers that send 100-Continue
-        quickly and then stall — as seen with Groq rate-limiting (30s delays).
+        Uses a daemon threading.Thread with join(timeout=20s) as a wall-clock
+        guard, because httpx's per-read timeout does not protect against servers
+        that send 100-Continue quickly and then stall (seen with Groq rate-limiting).
         """
         if not wav_bytes:
             return ""
         if not self._client:
-            self.logger.error("No API key — open Settings (chevron button) to enter your Groq key.")
-            return ""
+            self.logger.error(
+                "NO API KEY SET. Open Settings ('>' button on the overlay) "
+                "and enter your Groq API key from console.groq.com"
+            )
+            return "[NO_API_KEY]"
 
         audio_size_kb = len(wav_bytes) / 1024
         self.logger.info("Sending %.1f KB to Groq Whisper (model: %s)...", audio_size_kb, self.config.model)
         start = time.perf_counter()
 
-        # Use manual shutdown(wait=False) so the wall-clock timeout is real:
-        # the 'with' form calls shutdown(wait=True) on exit which re-blocks
-        # until the HTTP thread finishes — defeating the whole point.
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        future = executor.submit(self._do_whisper_request, wav_bytes, start)
-        try:
-            return future.result(timeout=20.0)
-        except concurrent.futures.TimeoutError:
+        result_holder: list = [None]
+        exc_holder: list = [None]
+
+        def _worker():
+            try:
+                result_holder[0] = self._do_whisper_request(wav_bytes, start)
+            except Exception as e:
+                exc_holder[0] = e
+
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
+        t.join(timeout=20.0)
+
+        if t.is_alive():
             elapsed = time.perf_counter() - start
             self.logger.error(
                 "⚠ Groq Whisper timed out after %.0fs — likely rate-limited. "
@@ -352,8 +386,10 @@ class TranscriptionService:
                 elapsed,
             )
             return ""
-        finally:
-            executor.shutdown(wait=False)  # release immediately; thread dies in background
+
+        if exc_holder[0] is not None:
+            raise exc_holder[0]
+        return result_holder[0] if result_holder[0] is not None else ""
 
     def _do_whisper_request(self, wav_bytes: bytes, start: float) -> str:
         """Perform the actual Groq Whisper API call (runs inside executor thread)."""
@@ -410,15 +446,21 @@ class TranscriptionService:
         """Run LLM post-correction with a hard 8s wall-clock timeout."""
         if not text:
             return text
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        future = executor.submit(self._correct_with_llm, text)
-        try:
-            return future.result(timeout=8.0)
-        except concurrent.futures.TimeoutError:
+
+        result_holder: list = [None]
+
+        def _worker():
+            result_holder[0] = self._correct_with_llm(text)
+
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
+        t.join(timeout=8.0)
+
+        if t.is_alive():
             self.logger.warning("LLM correction timed out (8s), using original text")
             return text
-        finally:
-            executor.shutdown(wait=False)
+
+        return result_holder[0] if result_holder[0] is not None else text
 
     # ------------------------------------------------------------------
     # Wörter-Überlappungs-Check: Prüft ob der korrigierte Text wirklich
@@ -587,15 +629,21 @@ class TextPaster:
         self.logger.info("Text copied to clipboard.")
 
         if self.config.auto_paste:
-            # Small delay to ensure the target window is focused
-            time.sleep(0.15)
-            # pynput Controller guarantees modifier release via context manager;
-            # avoids synthetic events confusing pynput's own WH_KEYBOARD_LL hook
-            paste_key = keyboard.Key.cmd if sys.platform == "darwin" else keyboard.Key.ctrl
-            with self._kb.pressed(paste_key):
-                self._kb.press('v')
-                self._kb.release('v')
-            self.logger.info("Auto-pasted into active window.")
+            if _IS_WAYLAND:
+                # pynput cannot inject events to foreign windows on Wayland.
+                # Text is in the clipboard — the user can paste manually with Ctrl+V.
+                self.logger.info("Wayland: text copied to clipboard — press Ctrl+V to paste.")
+            else:
+                # Small delay to ensure the target window has focus after hotkey release.
+                # 0.25s is safer than 0.15s across platforms under load.
+                time.sleep(0.25)
+                # pynput Controller guarantees modifier release via context manager;
+                # avoids synthetic events confusing pynput's own WH_KEYBOARD_LL hook.
+                paste_key = keyboard.Key.cmd if sys.platform == "darwin" else keyboard.Key.ctrl
+                with self._kb.pressed(paste_key):
+                    self._kb.press('v')
+                    self._kb.release('v')
+                self.logger.info("Auto-pasted into active window.")
 
 
 # ---------------------------------------------------------------------------
@@ -722,8 +770,9 @@ class SoundFeedback:
 class TrayIcon:
     """Optional system tray icon with status indication and quit option."""
 
-    def __init__(self, on_quit_callback):
+    def __init__(self, on_quit_callback, on_settings_callback=None):
         self._on_quit = on_quit_callback
+        self._on_settings = on_settings_callback
         self._icon: Optional[pystray.Icon] = None
         self._recording = False
         self.logger = logging.getLogger("TrayIcon")
@@ -738,6 +787,8 @@ class TrayIcon:
             "WordScript (Idle)",
             menu=pystray.Menu(
                 pystray.MenuItem("WordScript", None, enabled=False),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Settings", self._open_settings),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("Quit", self._quit),
             ),
@@ -767,10 +818,16 @@ class TrayIcon:
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("WordScript", None, enabled=False),
             pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Settings", self._open_settings),
+            pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", self._quit),
         )
         self._icon.title = f"WordScript — {label}"
         self.logger.info("Update notice shown in tray: %s", label)
+
+    def _open_settings(self, icon, item) -> None:  # noqa: ANN001
+        if self._on_settings:
+            self._on_settings()
 
     def _quit(self, icon, item) -> None:  # noqa: ANN001
         self._on_quit()
@@ -783,13 +840,33 @@ class TrayIcon:
         draw = ImageDraw.Draw(img)
         color = (220, 40, 40, 255) if recording else (40, 180, 60, 255)
         draw.ellipse([4, 4, size - 4, size - 4], fill=color)
-        # Draw "STT" text in center
-        try:
-            font = ImageFont.truetype("arial.ttf", 16)
-        except (OSError, IOError):
-            font = ImageFont.load_default()
+        font = TrayIcon._load_font(16)
         draw.text((size // 2, size // 2), "STT", fill=(255, 255, 255, 255), anchor="mm", font=font)
         return img
+
+    @staticmethod
+    def _load_font(size: int = 16) -> "ImageFont.FreeTypeFont":
+        """Return the best available font for the current platform."""
+        if sys.platform == "win32":
+            candidates = ["arial.ttf", r"C:\Windows\Fonts\arial.ttf"]
+        elif sys.platform == "darwin":
+            candidates = [
+                "/System/Library/Fonts/Helvetica.ttc",
+                "/Library/Fonts/Arial.ttf",
+            ]
+        else:
+            candidates = [
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+            ]
+        for path in candidates:
+            try:
+                return ImageFont.truetype(path, size)
+            except (OSError, IOError):
+                continue
+        return ImageFont.load_default()
 
 
 # ---------------------------------------------------------------------------
@@ -1253,15 +1330,43 @@ def _open_settings_modal(root_tk, config_ref: list, on_saved=None) -> None:
             status_var.set(f"✗  {exc}")
             status_lbl.configure(foreground=RED)
 
-    tk.Button(btn_frame, text="  Cancel  ",
-              bg=BTN_BG, fg=FG, activebackground=BORDER,
-              font=("Segoe UI", 10), relief="flat", cursor="hand2", bd=0,
-              command=modal.destroy, padx=18, pady=7).pack(side="left", padx=(0, 10))
+    # ── Buttons with hover effect ─────────────────────────────────────────
+    def _btn_hover(btn, normal_bg, hover_bg):
+        btn.bind("<Enter>", lambda _e: btn.configure(bg=hover_bg))
+        btn.bind("<Leave>", lambda _e: btn.configure(bg=normal_bg))
 
-    tk.Button(btn_frame, text="  Save  ",
-              bg=ACCENT, fg="#000000", activebackground="#d0d0d0",
-              font=("Segoe UI", 10, "bold"), relief="flat", cursor="hand2", bd=0,
-              command=_save, padx=18, pady=7).pack(side="left")
+    cancel_btn = tk.Button(btn_frame, text="  Cancel  ",
+                           bg=BTN_BG, fg=FG, activebackground=BORDER,
+                           font=("Segoe UI", 10), relief="flat", cursor="hand2", bd=0,
+                           command=modal.destroy, padx=18, pady=7)
+    cancel_btn.pack(side="left", padx=(0, 10))
+    _btn_hover(cancel_btn, BTN_BG, BORDER)
+
+    save_btn = tk.Button(btn_frame, text="  Save  ",
+                         bg=ACCENT, fg="#000000", activebackground="#d0d0d0",
+                         font=("Segoe UI", 10, "bold"), relief="flat", cursor="hand2", bd=0,
+                         padx=18, pady=7)
+    save_btn.pack(side="left")
+    _btn_hover(save_btn, ACCENT, "#cccccc")
+
+    def _save_animated():
+        _save()
+        # Flash green on success
+        if status_var.get().startswith("✓"):
+            save_btn.configure(bg=GREEN, fg="#000000")
+            modal.after(600, lambda: save_btn.configure(bg=ACCENT))
+
+    save_btn.configure(command=_save_animated)
+
+    # ── Version footer ────────────────────────────────────────────────────
+    try:
+        _ver = APP_VERSION
+    except NameError:
+        _ver = ""
+    if _ver:
+        tk.Label(modal, text=f"WordScript {_ver}",
+                 bg=BG, fg=FG_DIM,
+                 font=("Segoe UI", 7)).pack(anchor="e", padx=24, pady=(0, 6))
 
     # ── Size and centre ───────────────────────────────────────────────────
     modal.update_idletasks()
@@ -1318,6 +1423,7 @@ class VisualizerOverlay:
         self._on_settings_saved = None         # callback: () -> None
         self._want_settings = False            # set True to open modal from any thread
         self._root_ref:   list = []
+        self._tk_ready = threading.Event()     # set once the Tk mainloop is initialised
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -1354,8 +1460,28 @@ class VisualizerOverlay:
         root.overrideredirect(True)
         root.attributes("-topmost", True)
         root.attributes("-alpha", self._PILL_ALPHA)
-        root.wm_attributes("-transparentcolor", self._BG_WIN)
-        root.configure(bg=self._BG_WIN)
+
+        # Transparency strategy differs per platform:
+        #   Windows : color-key transparency — pixels matching _BG_WIN become see-through
+        #   macOS   : native -transparent attribute
+        #   Linux   : compositor provides alpha; use pill color as canvas bg so the
+        #             rectangular window blends instead of showing the key color
+        if sys.platform == "win32":
+            root.wm_attributes("-transparentcolor", self._BG_WIN)
+            root.configure(bg=self._BG_WIN)
+            canvas_bg = self._BG_WIN
+        elif sys.platform == "darwin":
+            try:
+                root.wm_attributes("-transparent", True)
+                root.configure(bg="systemTransparent")
+                canvas_bg = "systemTransparent"
+            except Exception:
+                root.configure(bg=self._BG_PILL)
+                canvas_bg = self._BG_PILL
+        else:
+            # Linux: rely on compositor alpha; no per-pixel transparency punch-through
+            root.configure(bg=self._BG_PILL)
+            canvas_bg = self._BG_PILL
 
         W, H = self._W, self._H
         sw = root.winfo_screenwidth()
@@ -1365,7 +1491,7 @@ class VisualizerOverlay:
         root.geometry(f"{W}x{H}+{x}+{y}")
 
         canvas = tk.Canvas(root, width=W, height=H,
-                           bg=self._BG_WIN, highlightthickness=0)
+                           bg=canvas_bg, highlightthickness=0)
         canvas.pack()
 
         levels = [0.0] * self._BAR_COUNT
@@ -1477,46 +1603,82 @@ class VisualizerOverlay:
         bar_gap = 2
         bar_w   = (bar_w_t - bar_gap * (self._BAR_COUNT - 1)) / self._BAR_COUNT
 
-        # ── Processing animation (sine-wave sweep at reduced brightness) ──
-        _proc_frame = [0]
+        # ── Animation state ───────────────────────────────────────────────
+        _smooth     = [0.0] * self._BAR_COUNT  # EMA-smoothed bar levels
+        _alpha      = [0.0]                     # current window alpha (fade)
+        _proc_frame = [0]                       # processing animation frame
+        _rec_frame  = [0]                       # recording pulse frame
 
+        # ── Processing animation: shimmer sweep L→R ───────────────────────
         def _draw_processing():
             canvas.delete("all")
             _draw_pill()
-            max_h = H - 16
-            frame = _proc_frame[0]
+            max_h   = H - 16
+            frame   = _proc_frame[0]
+            # Shimmer travels from -0.15 to 1.15 over ~80 frames
+            shimmer = (frame * 0.018) % 1.3 - 0.15
             for i in range(self._BAR_COUNT):
-                phase = frame * 0.12 + i * 0.45
-                lvl = (np.sin(phase) * 0.5 + 0.5) * 0.55 + 0.08
-                bh = max(3, int(lvl * max_h))
-                bx = bar_x1 + i * (bar_w + bar_gap)
-                by = (H - bh) / 2
-                rr = min(bar_w / 2, bh / 2, 3)
+                t     = i / max(self._BAR_COUNT - 1, 1)
+                phase = frame * 0.08 + i * 0.38
+                base  = math.sin(phase) * 0.22 + 0.35
+                dist  = abs(t - shimmer)
+                glow  = max(0.0, 1.0 - dist * 5.5)
+                lvl   = min(1.0, base + glow * 0.45)
+                gray  = int(0x30 + glow * (0xd0 - 0x30))
+                color = f"#{gray:02x}{gray:02x}{gray:02x}"
+                bh    = max(3, int(lvl * max_h))
+                bx    = bar_x1 + i * (bar_w + bar_gap)
+                by    = (H - bh) / 2
+                rr    = min(bar_w / 2, bh / 2, 3)
                 _draw_rounded_rect(canvas, bx, by, bx + bar_w, by + bh, rr,
-                                   fill="#3a3a3a", outline="")
+                                   fill=color, outline="")
             _draw_divider()
             _draw_mic_icon(canvas, self._MIC_W // 2, H // 2,
-                           color="#3a3a3a", tag="mic")
+                           color="#444444", tag="mic")
             _draw_chevron()
             _proc_frame[0] += 1
 
+        # ── Recording pulse dot (top-right of mic zone) ───────────────────
+        def _draw_rec_dot(frame: int):
+            pulse = math.sin(frame * 0.14) * 0.5 + 0.5   # 0..1
+            r     = 3.0 + pulse * 1.8
+            cx    = self._MIC_W - 9
+            cy    = 9
+            canvas.create_oval(cx - r, cy - r, cx + r, cy + r,
+                                fill="#ff3b3b", outline="", tags="recdot")
+
         # ── Tick ──────────────────────────────────────────────────────────
         def _tick():
+            # ── Fade in / fade out ────────────────────────────────────────
+            target = self._PILL_ALPHA if self._want_visible else 0.0
+            cur    = _alpha[0]
+            if cur != target:
+                step   = 0.10
+                _alpha[0] = (min(target, cur + step)
+                             if cur < target
+                             else max(target, cur - step))
+                root.attributes("-alpha", _alpha[0])
+
+            # ── Show / hide window ────────────────────────────────────────
             if self._want_visible and not self._is_visible:
-                levels.clear()
-                levels.extend([0.0] * self._BAR_COUNT)
+                _alpha[0] = 0.0
+                root.attributes("-alpha", 0.0)
+                for j in range(self._BAR_COUNT):
+                    _smooth[j] = 0.0
                 _draw_chrome()
                 root.deiconify()
                 self._is_visible = True
 
-            elif not self._want_visible and self._is_visible:
+            elif not self._want_visible and self._is_visible and _alpha[0] <= 0.0:
                 root.withdraw()
                 self._is_visible = False
 
+            # ── Render frame ─────────────────────────────────────────────
             if self._is_visible:
                 if self._processing:
                     _draw_processing()
                 elif self._level_queue:
+                    # Drain queue into levels list
                     while True:
                         try:
                             levels.append(self._level_queue.get_nowait())
@@ -1528,15 +1690,23 @@ class VisualizerOverlay:
                     _draw_pill()
 
                     is_muted = self._muted
-                    bar_col = self._BAR_MUTED if is_muted else self._BAR_COLOR
+                    bar_col  = self._BAR_MUTED if is_muted else self._BAR_COLOR
+                    max_h    = H - 16
 
-                    # Bars
-                    max_h = H - 16
-                    for i, lvl in enumerate(levels):
+                    for i, raw in enumerate(levels):
                         if is_muted:
-                            bh = 3  # flat line when muted
+                            # Flat breathing line when muted
+                            breathe   = math.sin(_rec_frame[0] * 0.04) * 0.5 + 0.5
+                            _smooth[i] = 3.0 + breathe * 1.5
+                            bh        = int(_smooth[i])
                         else:
-                            bh = max(3, int(lvl * max_h))
+                            # EMA: fast attack, slow decay
+                            if raw > _smooth[i]:
+                                _smooth[i] = _smooth[i] * 0.45 + raw * 0.55
+                            else:
+                                _smooth[i] = _smooth[i] * 0.82 + raw * 0.18
+                            bh = max(3, int(_smooth[i] * max_h))
+
                         bx = bar_x1 + i * (bar_w + bar_gap)
                         by = (H - bh) / 2
                         rr = min(bar_w / 2, bh / 2, 3)
@@ -1554,8 +1724,12 @@ class VisualizerOverlay:
                         mx, my = self._MIC_W // 2, H // 2
                         canvas.create_line(mx - 8, my - 10, mx + 8, my + 10,
                                            fill=self._MIC_MUTED, width=2, tags="mic")
+                    else:
+                        # Pulsing recording dot (top-right of mic zone)
+                        _draw_rec_dot(_rec_frame[0])
 
                     _draw_chevron()
+                    _rec_frame[0] += 1
 
             # Open settings if requested from outside the Tk thread
             if self._want_settings:
@@ -1567,6 +1741,9 @@ class VisualizerOverlay:
             root.after(self._UPDATE_MS, _tick)
 
         root.after(self._UPDATE_MS, _tick)
+        # Signal waiting threads that the Tk event loop is initialised and
+        # ready to receive after() calls (e.g. open_settings on first launch).
+        self._tk_ready.set()
         root.mainloop()
 
 
@@ -1616,6 +1793,7 @@ class HotkeyManager:
         # Abort hotkey: Ctrl+Alt
         self._abort_keys = {keyboard.Key.ctrl_l, keyboard.Key.alt_l}
         self._pressed_keys: set = set()
+        self._raw_pressed_keys: set = set()  # un-normalized keys for AltGr detection
         self._keys_lock = threading.Lock()
         self._hotkey_active = False  # Is the hotkey combo currently held?
         self._abort_active = False   # Is the abort combo currently held?
@@ -1644,6 +1822,7 @@ class HotkeyManager:
             self._listener.stop()
         with self._keys_lock:
             self._pressed_keys.clear()
+            self._raw_pressed_keys.clear()
         self._hotkey_active = False
         self._abort_active = False
 
@@ -1699,8 +1878,14 @@ class HotkeyManager:
             fire_hotkey = False
 
             with self._keys_lock:
+                self._raw_pressed_keys.add(key)
                 self._pressed_keys.add(normalized)
-                abort_hit  = self._abort_keys.issubset(self._pressed_keys)
+                # AltGr on Windows sends ctrl_r+alt_r simultaneously.
+                # After normalization both map to ctrl_l+alt_l = the abort combo.
+                # Detect AltGr via the raw (un-normalized) key set and suppress abort.
+                _is_altgr = (keyboard.Key.ctrl_r in self._raw_pressed_keys
+                             and keyboard.Key.alt_r in self._raw_pressed_keys)
+                abort_hit  = self._abort_keys.issubset(self._pressed_keys) and not _is_altgr
                 hotkey_hit = self._hotkey_keys.issubset(self._pressed_keys)
 
                 # Atomically check-and-set flags inside the lock to prevent
@@ -1725,6 +1910,7 @@ class HotkeyManager:
             fire_hotkey_release = False
 
             with self._keys_lock:
+                self._raw_pressed_keys.discard(key)
                 self._pressed_keys.discard(normalized)
                 self._pressed_keys.discard(key)  # also drop un-normalised form
                 abort_held  = self._abort_keys.issubset(self._pressed_keys)
@@ -1816,7 +2002,10 @@ class SpeechToTextApp:
         self.hotkeys.start()
 
         if self.config.show_tray_icon and TRAY_AVAILABLE:
-            self.tray = TrayIcon(on_quit_callback=self.shutdown)
+            self.tray = TrayIcon(
+                on_quit_callback=self.shutdown,
+                on_settings_callback=self.visualizer.open_settings,
+            )
             self.tray.start()
 
         # Background update check — silent, non-blocking
@@ -1827,10 +2016,11 @@ class SpeechToTextApp:
             time.sleep(0.5)  # Brief delay for tray icon to appear
             self.sounds.play_startup()
 
-        # First-launch prompt — open Settings automatically when no API key is set
+        # First-launch prompt — open Settings automatically when no API key is set.
+        # Wait for the Tk event loop to be ready (replaces the old unreliable sleep(1.2)).
         if not self.config.groq_api_key:
             self.logger.info("No API key found — opening Settings for first-time setup.")
-            time.sleep(1.2)  # give the Tk root a moment to be alive
+            self.visualizer._tk_ready.wait(timeout=8.0)
             self.visualizer.open_settings()
 
         # Keep the main thread alive
@@ -1859,6 +2049,12 @@ class SpeechToTextApp:
 
     def _start_recording(self) -> None:
         """Called by HotkeyManager when hotkey activates."""
+        if not self.config.groq_api_key and self.config.backend == "groq":
+            self.logger.error("No Groq API key configured — opening Settings.")
+            if self.config.play_sounds:
+                self.sounds.play_error()
+            self.visualizer.open_settings()
+            return
         try:
             self.recorder.start()
             self.visualizer.show(self.recorder.level_queue)
@@ -1999,6 +2195,40 @@ def _setup_logging(log_level: str) -> None:
         console_handler.setFormatter(formatter)
         root_logger.addHandler(console_handler)
 
+def _warn_platform_prerequisites(logger: logging.Logger) -> None:
+    """Log actionable warnings about missing platform prerequisites."""
+    import shutil
+
+    if sys.platform == "linux":
+        if _IS_WAYLAND:
+            logger.warning(
+                "Wayland session detected. Global hotkeys require XWayland to be "
+                "active (most distros enable it automatically). Auto-paste via "
+                "simulated Ctrl+V is DISABLED on Wayland — transcribed text goes "
+                "to the clipboard; press Ctrl+V to paste manually."
+            )
+        # Clipboard backend check
+        has_clipboard = any(shutil.which(c) for c in ("xclip", "xsel", "wl-copy"))
+        if not has_clipboard:
+            logger.warning(
+                "No clipboard backend found — pyperclip will fail. Install one:\n"
+                "  X11  : sudo apt install xclip   |   sudo dnf install xclip\n"
+                "  Wayland: sudo apt install wl-clipboard   |   sudo dnf install wl-clipboard"
+            )
+            print("[WARNING] No clipboard backend (xclip / wl-clipboard) found. "
+                  "Install xclip or wl-clipboard to enable clipboard support.")
+
+    elif sys.platform == "darwin":
+        logger.info(
+            "macOS: If the hotkey doesn't respond, grant Input Monitoring permission: "
+            "System Settings → Privacy & Security → Input Monitoring → enable WordScript."
+        )
+        logger.info(
+            "macOS: If the microphone doesn't work, grant Microphone permission: "
+            "System Settings → Privacy & Security → Microphone → enable WordScript."
+        )
+
+
 def main() -> None:
     """Entry point for the speech-to-text application."""
     global _singleton_socket
@@ -2022,6 +2252,9 @@ def main() -> None:
     logger.info("Model: %s | Language: %s | Sample Rate: %d Hz", 
                 config.model, config.language or "auto", config.sample_rate)
 
+    # Platform-specific prerequisite checks
+    _warn_platform_prerequisites(logger)
+
     # Check audio devices early
     try:
         devices = sd.query_devices()
@@ -2030,7 +2263,12 @@ def main() -> None:
         print(f"[OK] Default input device: {default_input['name']}")
     except Exception as exc:
         logger.error("No audio input device: %s", exc)
-        print(f"[ERROR] No audio input device found: {exc}")
+        if sys.platform == "linux":
+            print("[ERROR] No audio input device. Try: pulseaudio --start  OR  systemctl --user start pipewire")
+        elif sys.platform == "darwin":
+            print("[ERROR] No audio input device. Allow microphone access: System Settings → Privacy → Microphone")
+        else:
+            print(f"[ERROR] No audio input device found: {exc}")
         sys.exit(1)
 
     app = SpeechToTextApp()

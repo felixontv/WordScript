@@ -1,16 +1,16 @@
 {
     "groq_api_key": "",
-    "model": "whisper-large-v3-turbo",
+    "model": "whisper-large-v3",
     "language": "",
     "prompt": "",
 
     "post_process": true,
-    "correction_model": "llama-3.3-70b-versatile",
+    "correction_model": "llama-3.1-8b-instant",
 
     "hotkey": "ctrl_l+win",
     "activation_mode": "tap",
 
-    "sample_rate": 24000,
+    "sample_rate": 16000,
     "channels": 1,
     "dtype": "int16",
     "audio_device": "",
