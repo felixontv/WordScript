@@ -51,7 +51,7 @@ except ImportError:
 # App identity
 # ---------------------------------------------------------------------------
 
-APP_VERSION  = "0.1.4-alpha"              # bump on each release
+APP_VERSION  = "0.1.5-alpha"              # bump on each release
 GITHUB_REPO  = "felixontv/WordScript"     # owner/repo on GitHub
 
 # ---------------------------------------------------------------------------
@@ -1417,6 +1417,7 @@ class VisualizerOverlay:
         self._want_visible = False
         self._is_visible   = False
         self._processing   = False             # True while transcription is running
+        self._processing_start: float = 0.0   # wall-clock time when processing began
         self._muted        = False             # set by SpeechToTextApp
         self._config_ref: list = []            # [Config]
         self._on_mic_click = None              # callback: () -> None
@@ -1434,6 +1435,7 @@ class VisualizerOverlay:
 
     def show_processing(self) -> None:
         """Switch overlay to processing animation while transcription runs."""
+        self._processing_start = time.perf_counter()
         self._processing = True
         self._want_visible = True
 
@@ -1609,12 +1611,13 @@ class VisualizerOverlay:
         _proc_frame = [0]                       # processing animation frame
         _rec_frame  = [0]                       # recording pulse frame
 
-        # ── Processing animation: shimmer sweep L→R ───────────────────────
+        # ── Processing animation: shimmer sweep L→R + elapsed-time counter ──
         def _draw_processing():
             canvas.delete("all")
             _draw_pill()
             max_h   = H - 16
             frame   = _proc_frame[0]
+            elapsed = time.perf_counter() - self._processing_start
             # Shimmer travels from -0.15 to 1.15 over ~80 frames
             shimmer = (frame * 0.018) % 1.3 - 0.15
             for i in range(self._BAR_COUNT):
@@ -1635,7 +1638,19 @@ class VisualizerOverlay:
             _draw_divider()
             _draw_mic_icon(canvas, self._MIC_W // 2, H // 2,
                            color="#444444", tag="mic")
-            _draw_chevron()
+            # Elapsed time counter — appears after 5s so the user knows it's alive
+            if elapsed >= 5:
+                secs = int(elapsed)
+                label = f"{secs}s"
+                # Amber after 15s to signal slow API, white otherwise
+                fg = "#ffaa00" if elapsed >= 15 else "#666666"
+                canvas.create_text(
+                    W - self._CHEV_W // 2, H // 2,
+                    text=label, fill=fg,
+                    font=("Segoe UI", 8), anchor="center",
+                )
+            else:
+                _draw_chevron()
             _proc_frame[0] += 1
 
         # ── Recording pulse dot (top-right of mic zone) ───────────────────
