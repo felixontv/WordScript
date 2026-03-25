@@ -317,11 +317,11 @@ class TranscriptionService:
         self.config = config
         self.logger = logging.getLogger("TranscriptionService")
         self._client = (
-            Groq(api_key=config.groq_api_key, max_retries=0, timeout=15.0)
+            Groq(api_key=config.groq_api_key, max_retries=0, timeout=55.0)
             if config.groq_api_key else None
         )
         self._correction_client = (
-            Groq(api_key=config.groq_api_key, max_retries=0, timeout=6.0)
+            Groq(api_key=config.groq_api_key, max_retries=0, timeout=8.0)
             if config.groq_api_key else None
         )
         if not config.groq_api_key:
@@ -333,12 +333,12 @@ class TranscriptionService:
             self._client = Groq(
                 api_key=self.config.groq_api_key,
                 max_retries=0,
-                timeout=15.0,
+                timeout=55.0,
             )
             self._correction_client = Groq(
                 api_key=self.config.groq_api_key,
                 max_retries=0,
-                timeout=6.0,
+                timeout=8.0,
             )
             self.logger.info("Groq client reloaded with new API key.")
         else:
@@ -376,7 +376,7 @@ class TranscriptionService:
 
         t = threading.Thread(target=_worker, daemon=True)
         t.start()
-        t.join(timeout=20.0)
+        t.join(timeout=60.0)
 
         if t.is_alive():
             elapsed = time.perf_counter() - start
@@ -385,7 +385,7 @@ class TranscriptionService:
                 "Check quota at console.groq.com/usage",
                 elapsed,
             )
-            return ""
+            return "[TIMEOUT]"
 
         if exc_holder[0] is not None:
             raise exc_holder[0]
@@ -2134,30 +2134,47 @@ class SpeechToTextApp:
 
     def _transcribe_and_paste(self, wav_bytes: bytes) -> None:
         """Transcribe in two stages: Whisper pastes immediately, LLM correction updates clipboard silently."""
+        text = ""
         try:
-            # Stage 1: Whisper (~3-5s) — user gets text right away
+            # Stage 1: Whisper — 60s wall-clock budget; slow APIs (rate-limiting) can take 30s+
             text = self.transcriber.transcribe(wav_bytes)
             if not text:
+                # Empty result: either no speech detected or hallucination filtered — not an error
+                self.logger.info("Transcription returned empty (no speech or hallucination filtered).")
                 return
-            # All API error/rate-limit messages start with '[' — never paste them
+            # All API error/timeout messages start with '[' — never paste them
             if text.startswith("["):
-                self.logger.warning("Transcription returned non-text result (not pasting): %s", text)
+                self.logger.warning("Transcription error (not pasting): %s", text)
                 if self.config.play_sounds:
                     self.sounds.play_error()
                 return
-            self.paster.paste(text)
+            try:
+                self.paster.paste(text)
+            except Exception as paste_exc:
+                self.logger.error("Failed to paste text: %s", paste_exc, exc_info=True)
+                if self.config.play_sounds:
+                    self.sounds.play_error()
+                return
+        except Exception as exc:
+            self.logger.error("Unexpected error in transcription: %s", exc, exc_info=True)
+            if self.config.play_sounds:
+                self.sounds.play_error()
+            return
         finally:
             # Always hide the processing overlay, regardless of outcome
             self.visualizer.hide()
 
         # Stage 2: LLM correction — silently update clipboard only, no re-paste
-        # (only reached if Stage 1 completed without return/exception)
-        if self.config.post_process:
-            corrected = self.transcriber.correct(text)
-            if corrected and corrected != text:
-                clip_text = corrected + (' ' if corrected[-1] in '.!?' else '')
-                pyperclip.copy(clip_text)
-                self.logger.info("Clipboard silently updated with LLM-corrected text.")
+        # (only reached if Stage 1 pasted successfully)
+        if self.config.post_process and text:
+            try:
+                corrected = self.transcriber.correct(text)
+                if corrected and corrected != text:
+                    clip_text = corrected + (' ' if corrected[-1] in '.!?' else '')
+                    pyperclip.copy(clip_text)
+                    self.logger.info("Clipboard silently updated with LLM-corrected text.")
+            except Exception as exc:
+                self.logger.warning("LLM correction failed (non-fatal): %s", exc)
 
 
 # ---------------------------------------------------------------------------
