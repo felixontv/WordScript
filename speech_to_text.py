@@ -117,7 +117,7 @@ if getattr(sys, 'frozen', False) and not CONFIG_FILE.exists():
 class Config:
     """Application configuration loaded from config.json."""
     groq_api_key: str = ""
-    model: str = "whisper-large-v3"  # Best accuracy for DE/EN mixed speech
+    model: str = "whisper-large-v3-turbo"  # Groq-optimized: consistent <1s latency
     language: str = ""  # Auto-Detection für alle Sprachen
     prompt: str = ""  # Kontext für bessere Erkennung
     
