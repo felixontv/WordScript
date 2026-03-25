@@ -101,6 +101,32 @@ Die API gibt auch Header zurück mit aktuellen Limit-Informationen:
 
 ---
 
+## Troubleshooting: ~42 Sekunden Latenz bei jedem Request
+
+### Symptom
+Jeder API-Call dauert konstant ~42 Sekunden — unabhängig von Dateigröße, API-Key oder Tarif. Auch LLM-Korrektur ist langsam (~16s). Das Rate-Limit-Dashboard zeigt keine Auffälligkeiten.
+
+### Ursache: Defektes IPv6
+`api.groq.com` hat sowohl IPv4- als auch IPv6-Adressen (Cloudflare). Windows bevorzugt IPv6. Wenn der Router IPv6 ankündigt, es aber nicht korrekt routet, wartet Windows bei jedem Request ~42 Sekunden auf den IPv6-Timeout, bevor er auf IPv4 zurückfällt.
+
+### Diagnose
+```powershell
+# Ohne Flag (~42s) vs. mit IPv4 (<1s) → IPv6 ist schuld
+Measure-Command { Invoke-WebRequest -Uri "https://api.groq.com" -UseBasicParsing }
+Measure-Command { curl.exe --ipv4 https://api.groq.com }
+
+# IPv6-Adressen prüfen
+Resolve-DnsName api.groq.com
+```
+
+### Fix (PowerShell als Admin)
+```powershell
+Get-NetAdapter | Where-Object {$_.Status -eq "Up"} | Disable-NetAdapterBinding -ComponentID ms_tcpip6
+```
+Kein Neustart nötig. Betrifft alle HTTPS-Verbindungen zu Hosts mit IPv6-Records, nicht nur Groq.
+
+---
+
 ## Fazit
 
 **Für normale Speech-to-Text Nutzung sind die Limits mehr als ausreichend!**
