@@ -51,7 +51,7 @@ except ImportError:
 # App identity
 # ---------------------------------------------------------------------------
 
-APP_VERSION  = "0.1.3-alpha"              # bump on each release
+APP_VERSION  = "0.1.4-alpha"              # bump on each release
 GITHUB_REPO  = "felixontv/WordScript"     # owner/repo on GitHub
 
 # ---------------------------------------------------------------------------
