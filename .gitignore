@@ -1,32 +1,52 @@
-# Python
+# ── Python ────────────────────────────────────────────────────────────────
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
+*.pyd
 
-# Virtual environment
+# ── Virtual environment ───────────────────────────────────────────────────
 .venv/
+venv/
+env/
 
-# PyInstaller
+# ── PyInstaller ───────────────────────────────────────────────────────────
 build/
 dist/
+dist-python/
 *.spec
 !WordScript.spec
 
-# Logs
+# ── Node / npm ────────────────────────────────────────────────────────────
+node_modules/
+.npm/
+
+# ── Tauri / Rust ──────────────────────────────────────────────────────────
+src-tauri/target/
+src-tauri/gen/
+src-tauri/binaries/
+
+# ── Icon source (build artefact, not for version control) ─────────────────
+src-tauri/icons/ws-logo.png
+src-tauri/icons/ws-logo-sq.png
+
+# ── Runtime / user data ───────────────────────────────────────────────────
 *.log
-
-# Temp files
-tmpclaude-*
-
-# Secrets — enthält den Groq API Key
 config.json
+BUILD_ID
+build_info.json
 
-# OS
+# ── Temp / Claude tooling ─────────────────────────────────────────────────
+tmpclaude-*
+nul
+
+# ── OS ────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 desktop.ini
-nul
 
-# IDE
+# ── IDE ───────────────────────────────────────────────────────────────────
 .vscode/settings.json
 .idea/
+
+# ── Personal notes (may contain secrets) ─────────────────────────────────
+notes.md

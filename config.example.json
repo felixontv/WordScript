@@ -7,6 +7,9 @@
     "post_process": true,
     "correction_model": "llama-3.1-8b-instant",
 
+    "backend": "groq",
+    "local_model": "base",
+
     "hotkey": "ctrl_l+win",
     "activation_mode": "tap",
 
@@ -14,7 +17,7 @@
     "channels": 1,
     "dtype": "int16",
     "audio_device": "",
-    "max_recording_seconds": 120,
+    "max_recording_seconds": 720,
     "silence_timeout_seconds": 30,
 
     "auto_paste": true,

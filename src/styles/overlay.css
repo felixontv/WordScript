@@ -1,0 +1,151 @@
+/* ── Pill container ─────────────────────────────────────────────────────────── */
+.pill {
+  width: 296px;
+  height: 52px;
+  background: var(--bg);
+  border-radius: 26px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  position: relative;
+  opacity: 0.88;
+  cursor: default;
+}
+
+/* ── Zones ──────────────────────────────────────────────────────────────────── */
+.pill__mic {
+  width: 52px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.pill__mic:hover svg {
+  opacity: 1;
+}
+
+.pill__bars {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 0 6px;
+  cursor: grab;
+}
+
+.pill__divider {
+  width: 1px;
+  height: 26px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+.pill__chevron {
+  width: 44px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  color: var(--fg-dim);
+  font-size: 10px;
+  transition: color 0.15s;
+}
+
+.pill__chevron:hover {
+  color: var(--accent);
+}
+
+/* ── Waveform bars ──────────────────────────────────────────────────────────── */
+.bar {
+  width: 10px;
+  border-radius: 3px;
+  background: #ffffff;
+  transition: height 0.1s ease-out;
+  flex-shrink: 0;
+}
+
+.bar--muted {
+  background: #333333;
+}
+
+/* Recording: bar heights are driven by JS (audio_level events from Python).
+   No CSS animation here — animation: none ensures inline height wins. */
+.pill--recording .bar { animation: none; }
+
+/* Processing: shimmer sweep */
+.pill--processing .bar {
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+.pill--processing .bar:nth-child(1)  { animation-delay: 0.00s; }
+.pill--processing .bar:nth-child(2)  { animation-delay: 0.07s; }
+.pill--processing .bar:nth-child(3)  { animation-delay: 0.14s; }
+.pill--processing .bar:nth-child(4)  { animation-delay: 0.21s; }
+.pill--processing .bar:nth-child(5)  { animation-delay: 0.28s; }
+.pill--processing .bar:nth-child(6)  { animation-delay: 0.35s; }
+.pill--processing .bar:nth-child(7)  { animation-delay: 0.42s; }
+.pill--processing .bar:nth-child(8)  { animation-delay: 0.49s; }
+.pill--processing .bar:nth-child(9)  { animation-delay: 0.56s; }
+.pill--processing .bar:nth-child(10) { animation-delay: 0.63s; }
+.pill--processing .bar:nth-child(11) { animation-delay: 0.70s; }
+.pill--processing .bar:nth-child(12) { animation-delay: 0.77s; }
+.pill--processing .bar:nth-child(13) { animation-delay: 0.84s; }
+.pill--processing .bar:nth-child(14) { animation-delay: 0.91s; }
+.pill--processing .bar:nth-child(15) { animation-delay: 0.98s; }
+.pill--processing .bar:nth-child(16) { animation-delay: 1.05s; }
+
+@keyframes shimmer {
+  0%, 100% { height: 6px;  background: #303030; }
+  50%       { height: 22px; background: #d0d0d0; }
+}
+
+/* Muted: slow breathe */
+.pill--muted .bar {
+  background: #333333 !important;
+  animation: breathe 2.2s ease-in-out infinite;
+}
+@keyframes breathe {
+  0%, 100% { height: 3px; }
+  50%       { height: 5px; }
+}
+
+/* ── Recording dot ──────────────────────────────────────────────────────────── */
+.rec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+  position: absolute;
+  top: 9px;
+  left: 38px;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { transform: scale(1);   opacity: 1; }
+  50%       { transform: scale(1.4); opacity: 0.7; }
+}
+
+/* ── Timer ──────────────────────────────────────────────────────────────────── */
+.pill__timer {
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: var(--fg-dim);
+  pointer-events: none;
+}
+.pill__timer--warn   { color: var(--orange); }
+.pill__timer--urgent { color: var(--red); }
+
+/* ── Processing label ───────────────────────────────────────────────────────── */
+.pill__proc-label {
+  font-size: 9px;
+  color: var(--fg-dim);
+  pointer-events: none;
+}
+.pill__proc-label--slow { color: var(--orange); }

@@ -1,0 +1,21 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capabilities for all WordScript windows",
+  "windows": ["overlay", "settings"],
+  "permissions": [
+    "core:default",
+    "core:event:allow-listen",
+    "core:event:allow-emit",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:window:allow-start-dragging",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [{ "name": "wordscript-sidecar", "sidecar": true }]
+    },
+    "shell:allow-stdin-write",
+    "shell:allow-open"
+  ]
+}

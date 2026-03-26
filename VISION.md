@@ -95,8 +95,3 @@ WordScript will be rebuilt as an **Electron app** to run natively on Windows, ma
 
 ---
 
-## Non-Goals (for now)
-
-- No persistent chat history
-- No autonomous multi-step agent actions
-- No heavy GUI / settings panel

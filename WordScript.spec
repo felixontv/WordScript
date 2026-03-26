@@ -33,6 +33,25 @@ _hidden = [
     'tkinter',
     'packaging', 'packaging.version',
     'plyer',
+    # wordscript package modules
+    'wordscript',
+    'wordscript.constants',
+    'wordscript.config',
+    'wordscript.recorder',
+    'wordscript.transcription',
+    'wordscript.paster',
+    'wordscript.sounds',
+    'wordscript.tray',
+    'wordscript.updater',
+    'wordscript.hotkey',
+    'wordscript.ipc',
+    'wordscript.sidecar',
+    'wordscript.app',
+    'wordscript.ui',
+    'wordscript.ui.theme',
+    'wordscript.ui.widgets',
+    'wordscript.ui.overlay',
+    'wordscript.ui.settings',
 ] + _plyer_platform
 
 
