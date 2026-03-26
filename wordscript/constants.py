@@ -3,7 +3,7 @@
 import os
 import sys
 
-APP_VERSION = "0.1.5-alpha"
+APP_VERSION = "0.2.0-alpha"
 GITHUB_REPO = "felixontv/WordScript"
 
 # True when running inside a Wayland session on Linux.

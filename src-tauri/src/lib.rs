@@ -45,11 +45,19 @@ async fn save_config(
 }
 
 /// Show (and focus) the settings window.
+/// Briefly sets always-on-top so it clears the overlay, then restores.
 #[tauri::command]
 async fn open_settings_window(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window("settings") {
-        w.show().map_err(|e| e.to_string())?;
-        w.set_focus().map_err(|e| e.to_string())?;
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_always_on_top(true);
+        let _ = w.set_focus();
+        let w2 = w.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            let _ = w2.set_always_on_top(false);
+        });
     }
     Ok(())
 }
@@ -194,8 +202,15 @@ pub fn run() {
                     }
                     "settings" => {
                         if let Some(w) = app.get_webview_window("settings") {
+                            let _ = w.unminimize();
                             let _ = w.show();
+                            let _ = w.set_always_on_top(true);
                             let _ = w.set_focus();
+                            let w2 = w.clone();
+                            tauri::async_runtime::spawn(async move {
+                                tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                                let _ = w2.set_always_on_top(false);
+                            });
                         }
                     }
                     _ => {}
