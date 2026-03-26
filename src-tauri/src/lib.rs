@@ -217,6 +217,17 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            // ── Settings window: hide on close instead of destroy ─────────
+            if let Some(settings) = app.get_webview_window("settings") {
+                let s = settings.clone();
+                settings.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = s.hide();
+                    }
+                });
+            }
+
             // ── Position overlay at bottom-centre of primary monitor ──────
             if let Some(overlay) = app.get_webview_window("overlay") {
                 if let Ok(Some(monitor)) = overlay.primary_monitor() {
