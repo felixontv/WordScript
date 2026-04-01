@@ -1,4 +1,5 @@
 import type { AppConfig } from "../../types/ipc";
+import { HotkeyRecorder } from "./HotkeyRecorder";
 
 interface Props { config: AppConfig; onChange: (p: Partial<AppConfig>) => void; }
 
@@ -13,10 +14,12 @@ export function InputTab({ config, onChange }: Props) {
       <div className="form-section">Hotkey</div>
       <div className="form-row">
         <label>Hotkey Combo</label>
-        <input type="text" value={config.hotkey}
-          onChange={(e) => onChange({ hotkey: e.target.value.trim() })} />
+        <HotkeyRecorder
+          value={config.hotkey}
+          onChange={(hotkey) => onChange({ hotkey })}
+        />
       </div>
-      <p className="form-dim">e.g.&nbsp; ctrl_l+win &nbsp;or&nbsp; ctrl_l+alt_l+space</p>
+      <p className="form-dim">Click the field and press your desired key combination.</p>
 
       <div className="form-row">
         <label>Activation Mode</label>

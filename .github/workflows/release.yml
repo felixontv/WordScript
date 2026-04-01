@@ -11,63 +11,89 @@ permissions:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            artifact: WordScript-windows.exe
-            binary: dist/WordScript-windows.exe
-          - os: macos-latest
-            artifact: WordScript-macos
-            binary: dist/WordScript-macos
-          - os: ubuntu-latest
-            artifact: WordScript-linux
-            binary: dist/WordScript-linux
+          - platform: ubuntu-22.04
+          - platform: macos-latest
+          - platform: windows-latest
 
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.platform }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libxdo-dev \
+            libssl-dev \
+            python3-tk \
+            libportaudio2 \
+            portaudio19-dev
+
+      - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      # Linux needs system packages for tkinter, audio, and dbus notifications
-      - name: Install system dependencies (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y python3-tk libportaudio2 portaudio19-dev
-
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
+          pip install -r requirements.txt pyinstaller
 
-      - name: Build binary
-        run: pyinstaller WordScript.spec --noconfirm
+      - name: Build Python sidecar
+        run: pyinstaller WordScript.spec --distpath dist-python --noconfirm
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Copy sidecar to Tauri binaries (Linux / macOS)
+        if: matrix.platform != 'windows-latest'
+        shell: bash
+        run: |
+          TRIPLE=$(rustc -vV 2>/dev/null | awk '/^host:/{print $2}')
+          OS="$(uname -s)"
+          case "$OS" in
+            Linux)  SRC="dist-python/WordScript-linux" ;;
+            Darwin) SRC="dist-python/WordScript-macos" ;;
+          esac
+          mkdir -p src-tauri/binaries
+          cp -f "$SRC" "src-tauri/binaries/wordscript-sidecar-$TRIPLE"
+          chmod +x "src-tauri/binaries/wordscript-sidecar-$TRIPLE"
+
+      - name: Copy sidecar to Tauri binaries (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $triple = rustc -vV 2>$null | Select-String "host:" | ForEach-Object { ($_ -replace "host:\s*","").Trim() }
+          New-Item -ItemType Directory -Force -Path "src-tauri\binaries" | Out-Null
+          Copy-Item -Force "dist-python\WordScript-windows.exe" "src-tauri\binaries\wordscript-sidecar-$triple.exe"
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.binary }}
+          node-version: 20
+          cache: npm
 
-  release:
-    needs: build
-    runs-on: ubuntu-latest
+      - name: Install frontend dependencies
+        run: npm ci
 
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust build cache
+        uses: swatinem/rust-cache@v2
         with:
-          path: assets
+          workspaces: src-tauri -> target
 
       - name: Determine pre-release flag
         id: prerelease
+        shell: bash
         run: |
           TAG="${{ github.ref_name }}"
           if echo "$TAG" | grep -qiE '(alpha|beta|rc)'; then
@@ -76,14 +102,15 @@ jobs:
             echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Build & publish Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+          NO_STRIP: "1"
         with:
-          tag_name: ${{ github.ref_name }}
-          name: WordScript ${{ github.ref_name }}
+          tagName: ${{ github.ref_name }}
+          releaseName: "WordScript ${{ github.ref_name }}"
+          releaseBody: ""
+          releaseDraft: false
           prerelease: ${{ steps.prerelease.outputs.is_prerelease }}
-          generate_release_notes: true
-          files: |
-            assets/WordScript-windows.exe/WordScript-windows.exe
-            assets/WordScript-macos/WordScript-macos
-            assets/WordScript-linux/WordScript-linux

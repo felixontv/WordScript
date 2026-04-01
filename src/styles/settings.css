@@ -206,6 +206,48 @@
 .btn--save   { background: var(--accent); color: #000; font-weight: 600; }
 .btn--save:hover { background: #d0d0d0; }
 
+/* ── Hotkey Recorder ────────────────────────────────────────────────────────── */
+.hotkey-recorder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  min-height: 34px;
+  padding: 4px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+  outline: none;
+  user-select: none;
+}
+.hotkey-recorder:hover { border-color: var(--fg-dim); }
+.hotkey-recorder--recording { border-color: var(--accent); cursor: default; }
+
+.hotkey-recorder__key {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  background: var(--btn-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg);
+}
+.hotkey-recorder--recording .hotkey-recorder__key {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.hotkey-recorder__hint {
+  font-size: 12px;
+  color: var(--fg-dim);
+  font-style: italic;
+}
+
 /* ── About tab ──────────────────────────────────────────────────────────────── */
 .about-link {
   display: block;

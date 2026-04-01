@@ -26,7 +26,11 @@ else
 fi
 
 # ── 3. Copy to src-tauri/binaries/ ───────────────────────────────────────────
-SRC="dist-python/WordScript/WordScript"
+case "$(uname -s)" in
+  Linux)  SRC="dist-python/WordScript-linux" ;;
+  Darwin) SRC="dist-python/WordScript-macos" ;;
+  *)      echo -e "${RED}Unknown OS — cannot determine sidecar binary name.${NC}"; exit 1 ;;
+esac
 DEST="src-tauri/binaries/wordscript-sidecar-$TRIPLE"
 mkdir -p src-tauri/binaries
 cp -f "$SRC" "$DEST"
