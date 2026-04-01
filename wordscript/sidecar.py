@@ -111,6 +111,8 @@ class SidecarApp:
             "reload_config":   self._reload_config,
             "shutdown":        self.shutdown,
             "open_settings":   lambda: None,  # Tauri owns the settings window
+            "pause_hotkey":    self.hotkeys.pause,
+            "resume_hotkey":   self.hotkeys.resume,
         }
         handler = handlers.get(action)
         if handler:
@@ -293,7 +295,9 @@ class SidecarApp:
         self.config = Config.load()
         self.transcriber.config = self.config
         self.transcriber.reload_api_key()
+        self.hotkeys.config = self.config
         self.hotkeys.reload_hotkey()
+        self.hotkeys.reload_abort_hotkey()
         self.ipc.emit(
             "ready",
             version=APP_VERSION,

@@ -12,6 +12,7 @@ export interface AppConfig {
   backend:                 string;
   local_model:             string;
   hotkey:                  string;
+  abort_hotkey:            string;
   activation_mode:         "tap" | "hold";
   sample_rate:             number;
   channels:                number;
@@ -49,6 +50,8 @@ export type PythonCommand =
   | { cmd: "reload_config" }
   | { cmd: "save_config"; config: AppConfig }
   | { cmd: "open_settings" }
+  | { cmd: "pause_hotkey" }
+  | { cmd: "resume_hotkey" }
   | { cmd: "shutdown" };
 
 // ── Sidecar state (derived in useSidecar) ────────────────────────────────────

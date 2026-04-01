@@ -1,9 +1,13 @@
-import type { AppConfig } from "../../types/ipc";
+import type { AppConfig, PythonCommand } from "../../types/ipc";
 import { HotkeyRecorder } from "./HotkeyRecorder";
 
-interface Props { config: AppConfig; onChange: (p: Partial<AppConfig>) => void; }
+interface Props {
+  config: AppConfig;
+  onChange: (p: Partial<AppConfig>) => void;
+  sendCommand: (cmd: PythonCommand) => void;
+}
 
-export function InputTab({ config, onChange }: Props) {
+export function InputTab({ config, onChange, sendCommand }: Props) {
   const maxMins = Math.floor(config.max_recording_seconds / 60);
   const maxSecs = config.max_recording_seconds % 60;
 
@@ -13,13 +17,26 @@ export function InputTab({ config, onChange }: Props) {
 
       <div className="form-section">Hotkey</div>
       <div className="form-row">
-        <label>Hotkey Combo</label>
+        <label>Activate Hotkey</label>
         <HotkeyRecorder
           value={config.hotkey}
           onChange={(hotkey) => onChange({ hotkey })}
+          onStartRecording={() => sendCommand({ cmd: "pause_hotkey" })}
+          onStopRecording={() => sendCommand({ cmd: "resume_hotkey" })}
         />
       </div>
       <p className="form-dim">Click the field and press your desired key combination.</p>
+
+      <div className="form-row">
+        <label>Abort Hotkey</label>
+        <HotkeyRecorder
+          value={config.abort_hotkey}
+          onChange={(abort_hotkey) => onChange({ abort_hotkey })}
+          onStartRecording={() => sendCommand({ cmd: "pause_hotkey" })}
+          onStopRecording={() => sendCommand({ cmd: "resume_hotkey" })}
+        />
+      </div>
+      <p className="form-dim">Hold during recording to discard and stop.</p>
 
       <div className="form-row">
         <label>Activation Mode</label>

@@ -13,7 +13,7 @@ const TABS = ["General", "API & Models", "Input", "Prompts", "AI Assistant", "Ab
 type Tab = (typeof TABS)[number];
 
 export default function SettingsWindow() {
-  const { state, saveConfig } = useSidecar();
+  const { state, sendCommand, saveConfig } = useSidecar();
   const [form, setForm]       = useState<AppConfig | null>(null);
   const [active, setActive]   = useState<Tab>("General");
   const [status, setStatus]   = useState<{ msg: string; ok: boolean } | null>(null);
@@ -104,7 +104,7 @@ export default function SettingsWindow() {
             <ApiModelsTab config={form} onChange={patch} />
           </div>
           <div className={`tab${active === "Input"         ? " tab--active" : ""}`}>
-            <InputTab config={form} onChange={patch} />
+            <InputTab config={form} onChange={patch} sendCommand={sendCommand} />
           </div>
           <div className={`tab${active === "Prompts"       ? " tab--active" : ""}`}>
             <PromptsTab config={form} onChange={patch} />

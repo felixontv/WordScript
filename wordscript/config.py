@@ -68,6 +68,11 @@ class Config:
         else "ctrl_l+f9"
     )
     activation_mode: str = "tap"
+    abort_hotkey: str = (
+        "ctrl_l+cmd"   if sys.platform == "darwin"
+        else "ctrl_l+win"   if sys.platform == "win32"
+        else "ctrl_l+alt_l"
+    )
 
     sample_rate: int = 16000
     channels: int = 1

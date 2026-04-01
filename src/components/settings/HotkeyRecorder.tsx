@@ -45,9 +45,11 @@ function parseHotkey(hotkey: string): string[] {
 interface Props {
   value: string;
   onChange: (value: string) => void;
+  onStartRecording?: () => void;
+  onStopRecording?: () => void;
 }
 
-export function HotkeyRecorder({ value, onChange }: Props) {
+export function HotkeyRecorder({ value, onChange, onStartRecording, onStopRecording }: Props) {
   const [recording, setRecording] = useState(false);
   const [liveKeys, setLiveKeys] = useState<string[]>([]);
 
@@ -62,14 +64,16 @@ export function HotkeyRecorder({ value, onChange }: Props) {
     setLiveKeys([]);
     heldRef.current.clear();
     capturedRef.current = [];
-  }, [onChange]);
+    onStopRecording?.();
+  }, [onChange, onStopRecording]);
 
   const cancel = useCallback(() => {
     setRecording(false);
     setLiveKeys([]);
     heldRef.current.clear();
     capturedRef.current = [];
-  }, []);
+    onStopRecording?.();
+  }, [onStopRecording]);
 
   useEffect(() => {
     if (!recording) return;
@@ -113,6 +117,7 @@ export function HotkeyRecorder({ value, onChange }: Props) {
     capturedRef.current = [];
     setLiveKeys([]);
     setRecording(true);
+    onStartRecording?.();
   };
 
   const displayedKeys = recording ? liveKeys : sortKeys(parseHotkey(value));

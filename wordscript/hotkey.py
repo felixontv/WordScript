@@ -42,18 +42,19 @@ class HotkeyManager:
         self._on_abort      = on_abort
 
         self._hotkey_keys   = self._parse_hotkey(config.hotkey)
-        self._abort_keys    = {keyboard.Key.ctrl_l, keyboard.Key.alt_l}
+        self._abort_keys    = self._parse_hotkey(config.abort_hotkey)
         self._pressed_keys: set = set()
         self._raw_pressed_keys: set = set()
         self._keys_lock     = threading.Lock()
         self._hotkey_active = False
         self._abort_active  = False
         self._toggled_on    = False
+        self._paused: bool  = False
         self._listener: Optional[keyboard.Listener] = None
 
         self.logger.info(
-            "Hotkey: %s | Mode: %s | Abort: Ctrl+Alt",
-            config.hotkey, config.activation_mode,
+            "Hotkey: %s | Mode: %s | Abort: %s",
+            config.hotkey, config.activation_mode, config.abort_hotkey,
         )
 
     def start(self) -> None:
@@ -78,6 +79,18 @@ class HotkeyManager:
     def reload_hotkey(self) -> None:
         self._hotkey_keys = self._parse_hotkey(self.config.hotkey)
         self.logger.info("Hotkey reloaded: %s", self.config.hotkey)
+
+    def reload_abort_hotkey(self) -> None:
+        self._abort_keys = self._parse_hotkey(self.config.abort_hotkey)
+        self.logger.info("Abort hotkey reloaded: %s", self.config.abort_hotkey)
+
+    def pause(self) -> None:
+        self._paused = True
+        self.logger.debug("Hotkey listener paused.")
+
+    def resume(self) -> None:
+        self._paused = False
+        self.logger.debug("Hotkey listener resumed.")
 
     def _parse_hotkey(self, hotkey_str: str) -> set:
         keys = set()
@@ -119,19 +132,21 @@ class HotkeyManager:
             with self._keys_lock:
                 self._raw_pressed_keys.add(key)
                 self._pressed_keys.add(normalized)
-                _is_altgr = (
-                    keyboard.Key.ctrl_r in self._raw_pressed_keys
-                    and keyboard.Key.alt_r in self._raw_pressed_keys
-                )
-                abort_hit  = self._abort_keys.issubset(self._pressed_keys) and not _is_altgr
-                hotkey_hit = self._hotkey_keys.issubset(self._pressed_keys)
 
-                if abort_hit and not self._abort_active:
-                    self._abort_active = True
-                    fire_abort = True
-                elif hotkey_hit and not self._hotkey_active:
-                    self._hotkey_active = True
-                    fire_hotkey = True
+                if not self._paused:
+                    _is_altgr = (
+                        keyboard.Key.ctrl_r in self._raw_pressed_keys
+                        and keyboard.Key.alt_r in self._raw_pressed_keys
+                    )
+                    abort_hit  = self._abort_keys.issubset(self._pressed_keys) and not _is_altgr
+                    hotkey_hit = self._hotkey_keys.issubset(self._pressed_keys)
+
+                    if abort_hit and not self._abort_active:
+                        self._abort_active = True
+                        fire_abort = True
+                    elif hotkey_hit and not self._hotkey_active:
+                        self._hotkey_active = True
+                        fire_hotkey = True
 
             if fire_abort:
                 threading.Thread(target=self._handle_abort_press, daemon=True).start()
