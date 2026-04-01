@@ -46,10 +46,11 @@ class HotkeyManager:
         self._pressed_keys: set = set()
         self._raw_pressed_keys: set = set()
         self._keys_lock     = threading.Lock()
-        self._hotkey_active = False
-        self._abort_active  = False
-        self._toggled_on    = False
-        self._paused: bool  = False
+        self._hotkey_active       = False
+        self._abort_active        = False
+        self._toggled_on          = False
+        self._paused: bool        = False
+        self._hold_pending_release: bool = False
         self._listener: Optional[keyboard.Listener] = None
 
         self.logger.info(
@@ -73,8 +74,9 @@ class HotkeyManager:
         with self._keys_lock:
             self._pressed_keys.clear()
             self._raw_pressed_keys.clear()
-        self._hotkey_active = False
-        self._abort_active  = False
+        self._hotkey_active       = False
+        self._abort_active        = False
+        self._hold_pending_release = False
 
     def reload_hotkey(self) -> None:
         self._hotkey_keys = self._parse_hotkey(self.config.hotkey)
@@ -166,14 +168,38 @@ class HotkeyManager:
                 self._pressed_keys.discard(key)
                 abort_held  = self._abort_keys.issubset(self._pressed_keys)
                 hotkey_held = self._hotkey_keys.issubset(self._pressed_keys)
+                # True when none of the hotkey keys remain in pressed set
+                hotkey_fully_released = self._hotkey_keys.isdisjoint(self._pressed_keys)
 
                 if not abort_held and self._abort_active:
                     self._abort_active = False
 
                 if not hotkey_held and self._hotkey_active:
+                    # The full combo is no longer held — reset active flag and
+                    # flush remaining hotkey keys from tracked set so they don't
+                    # block the next press.
                     self._hotkey_active = False
                     for k in self._hotkey_keys:
                         self._pressed_keys.discard(k)
+
+                    if self.config.activation_mode == "hold":
+                        # Hold mode: only deactivate (stop recording) when ALL
+                        # hotkey keys are gone, not when just one is released.
+                        # This prevents premature stop with multi-key combos
+                        # where Ctrl may lift a few ms before F9 or vice-versa.
+                        if hotkey_fully_released:
+                            fire_hotkey_release = True
+                        else:
+                            self._hold_pending_release = True
+                    else:
+                        # Tap mode: fire release so _handle_hotkey_release can
+                        # run (it does nothing for tap, but keeps logic symmetric).
+                        fire_hotkey_release = True
+
+                elif self._hold_pending_release and hotkey_fully_released:
+                    # A previous release partially lifted the combo; now the last
+                    # hotkey key is gone — safe to deactivate.
+                    self._hold_pending_release = False
                     fire_hotkey_release = True
 
             if fire_hotkey_release:

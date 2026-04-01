@@ -133,6 +133,14 @@
   margin-top: -4px;
   line-height: 1.5;
 }
+.form-dim code {
+  font-family: monospace;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 10px;
+}
 
 .form-check {
   display: flex;

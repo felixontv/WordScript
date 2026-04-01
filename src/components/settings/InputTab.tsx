@@ -25,7 +25,18 @@ export function InputTab({ config, onChange, sendCommand }: Props) {
           onStopRecording={() => sendCommand({ cmd: "resume_hotkey" })}
         />
       </div>
-      <p className="form-dim">Click the field and press your desired key combination.</p>
+      <div className="form-row">
+        <label style={{ fontSize: 12, color: "var(--fg-dim)" }}>or type manually</label>
+        <input type="text" value={config.hotkey} style={{ fontFamily: "monospace" }}
+          placeholder="e.g. ctrl_l+f9"
+          onChange={(e) => onChange({ hotkey: e.target.value })} />
+      </div>
+      <p className="form-dim">
+        Click the recorder and press keys, or type the combo directly (useful for Win/Super on Linux
+        which desktop environments intercept before the browser sees it).
+        Key names: <code>ctrl_l</code>, <code>alt_l</code>, <code>shift_l</code>,{" "}
+        <code>win</code>, <code>f9</code>, <code>a</code>…
+      </p>
 
       <div className="form-row">
         <label>Abort Hotkey</label>
@@ -35,6 +46,12 @@ export function InputTab({ config, onChange, sendCommand }: Props) {
           onStartRecording={() => sendCommand({ cmd: "pause_hotkey" })}
           onStopRecording={() => sendCommand({ cmd: "resume_hotkey" })}
         />
+      </div>
+      <div className="form-row">
+        <label style={{ fontSize: 12, color: "var(--fg-dim)" }}>or type manually</label>
+        <input type="text" value={config.abort_hotkey} style={{ fontFamily: "monospace" }}
+          placeholder="e.g. ctrl_l+alt_l"
+          onChange={(e) => onChange({ abort_hotkey: e.target.value })} />
       </div>
       <p className="form-dim">Hold during recording to discard and stop.</p>
 
