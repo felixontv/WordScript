@@ -38,7 +38,7 @@ class TextPaster:
                     self.logger.error(
                         "Failed to copy to clipboard after 3 attempts: %s", exc
                     )
-                    return
+                    raise  # propagate so sidecar can show user-visible error
         self.logger.info("Text copied to clipboard.")
 
         if self.config.auto_paste:

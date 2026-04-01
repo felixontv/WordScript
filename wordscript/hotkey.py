@@ -3,6 +3,7 @@
 import logging
 import sys
 import threading
+import time
 from typing import Optional
 
 from pynput import keyboard
@@ -12,6 +13,15 @@ from .config import Config
 
 class HotkeyManager:
     """Global hotkey listener, supporting tap and hold activation modes."""
+
+    # Minimum seconds between consecutive hotkey fires. Prevents double-trigger
+    # caused by compositor synthetic evdev events (e.g. KDE Ctrl+Shift layout switch).
+    _HOTKEY_DEBOUNCE_S: float = 0.3
+
+    # Hold mode: minimum hold duration before a key-release stops recording.
+    # Filters synthetic releases from Wayland compositors that arrive within
+    # milliseconds of the physical press.
+    _HOLD_MIN_S: float = 0.3
 
     KEY_MAP = {
         "ctrl":    keyboard.Key.ctrl_l,
@@ -53,6 +63,11 @@ class HotkeyManager:
         self._hold_pending_release: bool = False
         self._listener: Optional[keyboard.Listener] = None
 
+        # Debounce / hold-mode timing state
+        self._last_hotkey_press_time: float = 0.0
+        self._hold_start_time:        float = 0.0
+        self._hold_session:           int   = 0
+
         self.logger.info(
             "Hotkey: %s | Mode: %s | Abort: %s",
             config.hotkey, config.activation_mode, config.abort_hotkey,
@@ -74,9 +89,10 @@ class HotkeyManager:
         with self._keys_lock:
             self._pressed_keys.clear()
             self._raw_pressed_keys.clear()
-        self._hotkey_active       = False
-        self._abort_active        = False
+        self._hotkey_active        = False
+        self._abort_active         = False
         self._hold_pending_release = False
+        self._hold_session        += 1   # invalidate any pending deferred-stop timers
 
     def reload_hotkey(self) -> None:
         self._hotkey_keys = self._parse_hotkey(self.config.hotkey)
@@ -147,8 +163,13 @@ class HotkeyManager:
                         self._abort_active = True
                         fire_abort = True
                     elif hotkey_hit and not self._hotkey_active:
-                        self._hotkey_active = True
-                        fire_hotkey = True
+                        # 300 ms debounce: ignore rapid re-trigger from compositor
+                        # synthetic evdev events (e.g. KDE Ctrl+Shift layout switch).
+                        now = time.perf_counter()
+                        if now - self._last_hotkey_press_time >= self._HOTKEY_DEBOUNCE_S:
+                            self._last_hotkey_press_time = now
+                            self._hotkey_active = True
+                            fire_hotkey = True
 
             if fire_abort:
                 threading.Thread(target=self._handle_abort_press, daemon=True).start()
@@ -209,6 +230,8 @@ class HotkeyManager:
 
     def _handle_hotkey_press(self) -> None:
         if self.config.activation_mode == "hold":
+            self._hold_session  += 1
+            self._hold_start_time = time.perf_counter()
             self._on_activate()
         elif self.config.activation_mode == "tap":
             if self._toggled_on:
@@ -220,7 +243,23 @@ class HotkeyManager:
 
     def _handle_hotkey_release(self) -> None:
         if self.config.activation_mode == "hold":
-            self._on_deactivate()
+            held_for = time.perf_counter() - self._hold_start_time
+            if held_for < self._HOLD_MIN_S:
+                # Key released too quickly — likely a synthetic compositor event.
+                # Schedule the actual stop for when the minimum hold time expires.
+                # The session counter lets us cancel this if a new recording starts.
+                session = self._hold_session
+                delay   = self._HOLD_MIN_S - held_for
+
+                def _deferred_stop(s: int = session) -> None:
+                    if self._hold_session == s:
+                        self._on_deactivate()
+
+                t = threading.Timer(delay, _deferred_stop)
+                t.daemon = True
+                t.start()
+            else:
+                self._on_deactivate()
 
     def _handle_abort_press(self) -> None:
         self.logger.info("Abort hotkey pressed")

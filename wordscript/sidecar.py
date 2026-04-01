@@ -241,14 +241,24 @@ class SidecarApp:
                 if self.config.play_sounds:
                     self.sounds.play_error()
                 return
+            paste_ok = True
             try:
                 self.paster.paste(text)
-            except Exception as exc:
-                self.ipc.emit("error", message=f"Paste failed: {exc}")
+            except Exception:
+                paste_ok = False
+
+            # Always emit the transcription so the user can see the text.
+            self.ipc.emit("transcription", text=text, corrected=False)
+
+            if not paste_ok:
                 if self.config.play_sounds:
                     self.sounds.play_error()
-                return
-            self.ipc.emit("transcription", text=text, corrected=False)
+                self.ipc.emit("error", message=(
+                    "Clipboard nicht verfügbar — Text transkribiert, aber nicht eingefügt. "
+                    "Auf Wayland: sudo pacman -S wl-clipboard installieren, "
+                    "dann die App neu starten."
+                ))
+                return  # skip LLM correction since paste failed
 
         except Exception as exc:
             self.ipc.emit("error", message=str(exc))
