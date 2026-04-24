@@ -31,6 +31,7 @@ def _cmd_sidecar():
     # Singleton guard — same port as full app so both can't run simultaneously
     try:
         _sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        _sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         _sock.bind(("127.0.0.1", 48127))
     except OSError:
         # Emit error as JSON so Tauri can surface it

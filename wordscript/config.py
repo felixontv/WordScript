@@ -14,11 +14,7 @@ def _resolve_user_data_dir() -> Path:
     Windows : %APPDATA%\\WordScript
     macOS   : ~/Library/Application Support/WordScript
     Linux   : $XDG_CONFIG_HOME/WordScript  (defaults to ~/.config/WordScript)
-    Dev run : next to the script  (convenient, no side-effects)
     """
-    if not getattr(sys, "frozen", False):
-        return Path(__file__).parent.parent
-
     plat = sys.platform
     if plat == "win32":
         base = Path(os.environ.get("APPDATA") or (Path.home() / "AppData" / "Roaming"))

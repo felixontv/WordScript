@@ -327,6 +327,7 @@ def main() -> None:
 
     try:
         _singleton_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        _singleton_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         _singleton_socket.bind(("127.0.0.1", 48127))
     except OSError:
         print("[INFO] WordScript is already running.")

@@ -45,19 +45,11 @@ async fn save_config(
 }
 
 /// Show (and focus) the settings window.
-/// Briefly sets always-on-top so it clears the overlay, then restores.
 #[tauri::command]
 async fn open_settings_window(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window("settings") {
         let _ = w.unminimize();
-        let _ = w.show();
-        let _ = w.set_always_on_top(true);
         let _ = w.set_focus();
-        let w2 = w.clone();
-        tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-            let _ = w2.set_always_on_top(false);
-        });
     }
     Ok(())
 }
@@ -70,10 +62,21 @@ fn spawn_sidecar(app: &AppHandle) {
     // In development (TAURI_ENV=dev or debug build): run Python from the repo
     // In production: use the bundled sidecar binary (wordscript-sidecar-<triple>)
     let spawn_result = if cfg!(debug_assertions) {
+        // Resolve project root from the Cargo manifest dir embedded at compile time
+        let project_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap_or(std::path::Path::new("."));
+        let venv_python = project_root.join(".venv/bin/python");
+        let python_cmd = if venv_python.exists() {
+            venv_python.to_string_lossy().to_string()
+        } else {
+            "python".to_string()
+        };
         app.shell()
-            .command("python")
+            .command(&python_cmd)
             .args(["-m", "wordscript", "sidecar"])
-            .current_dir(std::env::current_dir().unwrap_or_default())
+            .env("PYTHONDONTWRITEBYTECODE", "1")
+            .current_dir(project_root)
             .spawn()
     } else {
         app.shell()
@@ -102,34 +105,17 @@ fn spawn_sidecar(app: &AppHandle) {
                                     .and_then(|e| e.as_str())
                                     .unwrap_or("");
 
-                                // Rust manages overlay visibility — React only renders state
+                                // Overlay visibility is driven purely by CSS in React.
+                                // No GTK show()/hide()/set_size()/set_position() calls —
+                                // those crash under XWayland after repeated cycles.
                                 match event_type {
-                                    "recording_started" | "processing" => {
-                                        if let Some(overlay) = handle.get_webview_window("overlay") {
-                                            let _ = overlay.show();
-                                            let _ = overlay.set_always_on_top(true);
-                                        }
-                                    }
-                                    "transcription" | "empty" | "error" => {
-                                        if let Some(overlay) = handle.get_webview_window("overlay") {
-                                            // Small delay so the last state is visible briefly
-                                            let ov = overlay.clone();
-                                            tauri::async_runtime::spawn(async move {
-                                                tokio::time::sleep(
-                                                    std::time::Duration::from_millis(300)
-                                                ).await;
-                                                let _ = ov.hide();
-                                            });
-                                        }
-                                    }
                                     "shutdown" => {
                                         handle.exit(0);
                                     }
                                     _ => {}
                                 }
 
-                                // Broadcast to all windows — React subscribes with listen("py-event")
-                                let _ = handle.emit("py-event", &value);
+                            let _ = handle.emit("py-event", &value);
                             }
                         }
                         CommandEvent::Stderr(bytes) => {
@@ -168,7 +154,7 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // Second instance tried to launch — focus settings window instead
             if let Some(w) = app.get_webview_window("settings") {
-                let _ = w.show();
+                let _ = w.unminimize();
                 let _ = w.set_focus();
             }
         }))
@@ -203,42 +189,22 @@ pub fn run() {
                     "settings" => {
                         if let Some(w) = app.get_webview_window("settings") {
                             let _ = w.unminimize();
-                            let _ = w.show();
-                            let _ = w.set_always_on_top(true);
                             let _ = w.set_focus();
-                            let w2 = w.clone();
-                            tauri::async_runtime::spawn(async move {
-                                tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-                                let _ = w2.set_always_on_top(false);
-                            });
                         }
                     }
                     _ => {}
                 })
                 .build(app)?;
 
-            // ── Settings window: hide on close instead of destroy ─────────
+            // ── Settings window: minimize on close instead of destroy ────
             if let Some(settings) = app.get_webview_window("settings") {
                 let s = settings.clone();
                 settings.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                         api.prevent_close();
-                        let _ = s.hide();
+                        let _ = s.minimize();
                     }
                 });
-            }
-
-            // ── Position overlay at bottom-centre of primary monitor ──────
-            if let Some(overlay) = app.get_webview_window("overlay") {
-                if let Ok(Some(monitor)) = overlay.primary_monitor() {
-                    let w = 296i32;
-                    let h = 52i32;
-                    let sw = monitor.size().width as i32;
-                    let sh = monitor.size().height as i32;
-                    let x = (sw - w) / 2;
-                    let y = sh - h - 90;
-                    let _ = overlay.set_position(tauri::PhysicalPosition::new(x, y));
-                }
             }
 
             // ── Spawn Python backend ──────────────────────────────────────

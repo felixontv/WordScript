@@ -28,7 +28,7 @@ class AudioRecorder:
         self._recording = False
         self._muted = False
         self._lock = threading.Lock()
-        self.level_queue: queue.Queue = queue.Queue()
+        self.level_queue: queue.Queue = queue.Queue(maxsize=64)
         self._last_voice_time: float = 0.0
 
     @property
@@ -130,7 +130,10 @@ class AudioRecorder:
         if self._recording:
             if self._muted:
                 self._frames.append(np.zeros_like(indata))
-                self.level_queue.put(0.0)
+                try:
+                    self.level_queue.put_nowait(0.0)
+                except queue.Full:
+                    pass
             else:
                 self._frames.append(indata.copy())
                 peak = float(np.max(np.abs(indata.astype(np.float32))))
@@ -138,7 +141,10 @@ class AudioRecorder:
                     peak /= 32767.0
                 if peak > self._VOICE_THRESHOLD:
                     self._last_voice_time = time.perf_counter()
-                self.level_queue.put(min(1.0, peak))
+                try:
+                    self.level_queue.put_nowait(min(1.0, peak))
+                except queue.Full:
+                    pass
 
     def _build_wav(self) -> bytes:
         if not self._frames:

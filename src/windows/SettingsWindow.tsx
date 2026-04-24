@@ -49,14 +49,14 @@ export default function SettingsWindow() {
   const handleCancel = async () => {
     // Hide settings window via Tauri API
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    getCurrentWindow().hide();
+    getCurrentWindow().minimize();
   };
 
   if (!form) {
     return (
       <div style={{
         height: "100vh", display: "flex", alignItems: "center",
-        justifyContent: "center", background: "var(--bg)", color: "var(--fg-dim)",
+        justifyContent: "center", background: "#1e1e1e", color: "#999",
         fontSize: 13,
       }}>
         Connecting to backend…

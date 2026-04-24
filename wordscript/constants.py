@@ -13,6 +13,7 @@ _IS_WAYLAND = (
     sys.platform == "linux"
     and bool(
         os.environ.get("WAYLAND_DISPLAY")
+        or os.environ.get("WORDSCRIPT_WAS_WAYLAND")
         or os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland"
     )
 )

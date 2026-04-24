@@ -5,9 +5,27 @@ import re
 import threading
 import time
 
+import httpx
 from groq import Groq
 
 from .config import Config
+
+
+def _make_groq_client(api_key: str, timeout: float) -> Groq:
+    """Create a Groq client with forced IPv4 to avoid IPv6 connect timeouts."""
+    return Groq(
+        api_key=api_key,
+        max_retries=0,
+        timeout=timeout,
+        http_client=httpx.Client(
+            transport=httpx.HTTPTransport(local_address="0.0.0.0"),
+            limits=httpx.Limits(
+                max_connections=5,
+                max_keepalive_connections=2,
+                keepalive_expiry=30,
+            ),
+        ),
+    )
 
 
 class TranscriptionService:
@@ -17,11 +35,11 @@ class TranscriptionService:
         self.config = config
         self.logger = logging.getLogger("TranscriptionService")
         self._client = (
-            Groq(api_key=config.groq_api_key, max_retries=0, timeout=55.0)
+            _make_groq_client(config.groq_api_key, timeout=55.0)
             if config.groq_api_key else None
         )
         self._correction_client = (
-            Groq(api_key=config.groq_api_key, max_retries=0, timeout=8.0)
+            _make_groq_client(config.groq_api_key, timeout=8.0)
             if config.groq_api_key else None
         )
         if not config.groq_api_key:
@@ -29,21 +47,24 @@ class TranscriptionService:
 
     def reload_api_key(self) -> None:
         """Re-initialise the Groq client after an API-key change at runtime."""
+        # Close old httpx clients to prevent file-descriptor / connection leaks
+        self._close_clients()
         if self.config.groq_api_key:
-            self._client = Groq(
-                api_key=self.config.groq_api_key,
-                max_retries=0,
-                timeout=55.0,
-            )
-            self._correction_client = Groq(
-                api_key=self.config.groq_api_key,
-                max_retries=0,
-                timeout=8.0,
-            )
+            self._client = _make_groq_client(self.config.groq_api_key, timeout=55.0)
+            self._correction_client = _make_groq_client(self.config.groq_api_key, timeout=8.0)
             self.logger.info("Groq client reloaded with new API key.")
         else:
             self._client = None
             self._correction_client = None
+
+    def _close_clients(self) -> None:
+        """Close existing httpx clients to free connections."""
+        for client in (self._client, self._correction_client):
+            if client is not None:
+                try:
+                    client.close()
+                except Exception:
+                    pass
 
     def transcribe(self, wav_bytes: bytes) -> str:
         """Send WAV audio bytes to Groq and return the transcription text.

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
+import { currentMonitor } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { useSidecar } from "../hooks/useSidecar";
 import "../styles/overlay.css";
@@ -9,6 +10,41 @@ const BAR_COUNT = 16;
 export default function OverlayWindow() {
   const { state, sendCommand, openSettings } = useSidecar();
   const { status, muted } = state;
+  const positionedRef = useRef(false);
+
+  // Mark html element for overlay-specific CSS
+  useEffect(() => {
+    document.documentElement.classList.add("overlay-window");
+    document.documentElement.classList.add("overlay-idle");
+  }, []);
+
+  // CSS-based visibility: idle overlay is transparent + click-through
+  // This avoids GTK show()/hide() which crash under XWayland.
+  const isActive = status === "recording" || status === "processing";
+  useEffect(() => {
+    if (isActive) {
+      document.documentElement.classList.remove("overlay-idle");
+      // Position center-bottom on first activation (only once)
+      if (!positionedRef.current) {
+        positionedRef.current = true;
+        currentMonitor().then((monitor) => {
+          if (monitor) {
+            const sw = monitor.size.width;
+            const sh = monitor.size.height;
+            const x = Math.round((sw - 312) / 2);
+            const y = sh - 68 - 90;
+            getCurrentWindow().setPosition(new PhysicalPosition(x, y)).catch(() => {});
+          }
+        });
+      }
+    } else {
+      // Brief delay so user sees the final state before hiding
+      const t = setTimeout(() => {
+        document.documentElement.classList.add("overlay-idle");
+      }, 300);
+      return () => clearTimeout(t);
+    }
+  }, [isActive]);
 
   // Reactive waveform bars driven by audio_level events from Python
   const [barHeights, setBarHeights] = useState<number[]>(Array(BAR_COUNT).fill(4));

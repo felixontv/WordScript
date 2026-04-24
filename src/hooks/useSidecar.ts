@@ -60,6 +60,7 @@ export function useSidecar() {
   useEffect(() => {
     // Subscribe to all Python events on the single "py-event" channel
     const unlisten = listen<PythonEvent>("py-event", ({ payload }) => {
+      console.log("[useSidecar] py-event received:", payload.event, payload);
       if (payload.event === "audio_level") return; // handled directly in OverlayWindow
       switch (payload.event) {
         case "ready":

@@ -50,3 +50,9 @@ desktop.ini
 
 # ── Personal notes (may contain secrets) ─────────────────────────────────
 notes.md
+
+# Claude Code
+tmpclaude-*
+CLAUDE.local.md
+.claude/settings.local.json
+CREDENTIALS.md

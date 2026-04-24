@@ -47,6 +47,7 @@ class SidecarApp:
         )
         self._running         = True
         self._max_rec_timer: Optional[threading.Timer] = None
+        self._audio_stop_event = threading.Event()
 
     # ── Lifecycle ───────────────────────────────────────────────────────
 
@@ -148,6 +149,7 @@ class SidecarApp:
                 ).start()
 
             # Stream audio levels to overlay bars
+            self._audio_stop_event.clear()
             threading.Thread(
                 target=self._stream_audio_levels, daemon=True
             ).start()
@@ -161,6 +163,7 @@ class SidecarApp:
         if not self.recorder.is_recording:
             return
         self._cancel_timers()
+        self._audio_stop_event.set()
         self.recorder._muted = False
         self.hotkeys._toggled_on = False
 
@@ -184,6 +187,7 @@ class SidecarApp:
         if not self.recorder.is_recording:
             return
         self._cancel_timers()
+        self._audio_stop_event.set()
         self.recorder.stop()
         self.hotkeys._toggled_on = False
         if self.config.play_sounds:
@@ -206,7 +210,7 @@ class SidecarApp:
 
     def _stream_audio_levels(self) -> None:
         """Drain level_queue and emit audio_level ~12×/s while recording."""
-        while self.recorder.is_recording:
+        while not self._audio_stop_event.is_set():
             level = 0.0
             try:
                 while not self.recorder.level_queue.empty():
@@ -214,7 +218,7 @@ class SidecarApp:
             except Exception:
                 pass
             self.ipc.emit("audio_level", level=round(level, 3))
-            time.sleep(0.08)
+            self._audio_stop_event.wait(timeout=0.08)
 
     def _monitor_silence(self) -> None:
         """Auto-stop after silence_timeout_seconds of quiet mic input."""

@@ -1,4 +1,25 @@
 /* ── Pill container ─────────────────────────────────────────────────────────── */
+html.overlay-window,
+html.overlay-window body,
+html.overlay-window #root {
+  overflow: hidden;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Overlay idle: invisible + click-through (no GTK show/hide needed) */
+html.overlay-window.overlay-idle,
+html.overlay-window.overlay-idle body,
+html.overlay-window.overlay-idle #root {
+  pointer-events: none;
+}
+html.overlay-window.overlay-idle .pill {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .pill {
   width: 296px;
   height: 52px;
@@ -10,6 +31,7 @@
   position: relative;
   opacity: 0.88;
   cursor: default;
+  transition: opacity 0.15s ease-out;
 }
 
 /* ── Zones ──────────────────────────────────────────────────────────────────── */

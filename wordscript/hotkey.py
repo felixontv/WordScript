@@ -112,7 +112,10 @@ class HotkeyManager:
 
     def _parse_hotkey(self, hotkey_str: str) -> set:
         keys = set()
-        for part in hotkey_str.lower().split("+"):
+        # Support both "+" and ", " / "," as separator (UI recorder uses ", ")
+        import re
+        parts = re.split(r'[+,]', hotkey_str.lower())
+        for part in parts:
             part = part.strip()
             if part in self.KEY_MAP:
                 keys.add(self.KEY_MAP[part])
